@@ -3,9 +3,13 @@ package com.okonu.flipflix;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
+import android.graphics.Rect;
+import android.net.Uri;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -25,30 +29,57 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.VideoView;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashMap;
 
 public final class MainActivity extends Activity {
-    private static final int BG = Color.rgb(8, 11, 16);
-    private static final int PANEL = Color.rgb(20, 26, 36);
-    private static final int WHITE = Color.rgb(242, 246, 252);
-    private static final int MUTED = Color.rgb(158, 172, 190);
-    private static final int ACCENT = Color.rgb(24, 184, 237);
+    private static final int BG = Color.rgb(20, 20, 20);
+    private static final int PANEL = Color.rgb(42, 42, 42);
+    private static final int WHITE = Color.rgb(245, 245, 241);
+    private static final int MUTED = Color.rgb(179, 179, 179);
+    private static final int ACCENT = Color.rgb(229, 9, 20);
     private final CatalogApi api = new CatalogApi();
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private final List<List<View>> focusRows = new ArrayList<>();
+    private final List<View> navButtons = new ArrayList<>();
+    private final List<Button> overlayButtons = new ArrayList<>();
     private FrameLayout root;
     private LinearLayout content;
     private WebView player;
+    private VideoView nativePlayer;
+    private TextView playerStatus;
     private LinearLayout playerScreen;
+    private LinearLayout playerOverlay;
     private View playerBar;
     private View playerBackButton;
     private View episodeControls;
+    private Button barSourceButton;
+    private Button overlaySourceButton;
+    private View selectedNavButton;
     private View customVideoView;
     private WebChromeClient.CustomViewCallback customVideoCallback;
     private boolean playerFullscreen;
+    private final Runnable hidePlayerOverlay = new Runnable() {
+        @Override public void run() {
+            if (!playerFullscreen || playerOverlay == null) return;
+            if (overlayButtons.contains(getCurrentFocus())) {
+                ui.postDelayed(this, 8000);
+                return;
+            }
+            playerOverlay.setVisibility(View.GONE);
+            if (nativePlayer != null) nativePlayer.requestFocus();
+            else if (customVideoView != null) customVideoView.requestFocus();
+            else if (player != null) player.requestFocus();
+        }
+    };
+    private int currentSourceIndex;
+    private int sourceRequest;
     private Item selected;
     private String section = "Home";
     private boolean detailOpen;
@@ -93,7 +124,7 @@ public final class MainActivity extends Activity {
     private GradientDrawable shape(int color, int border) {
         GradientDrawable d = new GradientDrawable();
         d.setColor(color);
-        d.setCornerRadius(dp(12));
+        d.setCornerRadius(dp(6));
         d.setStroke(dp(2), border);
         return d;
     }
@@ -106,28 +137,43 @@ public final class MainActivity extends Activity {
         if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         return t;
     }
-    private LinearLayout column() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); return l; }
-    private LinearLayout row() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
+    private LinearLayout column() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setClipChildren(false); l.setClipToPadding(false); return l; }
+    private LinearLayout row() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); l.setClipChildren(false); l.setClipToPadding(false); return l; }
     private void gap(LinearLayout l, int height) { View v = new View(this); l.addView(v, new LinearLayout.LayoutParams(1, dp(height))); }
     private Button button(String label, Runnable action) {
+        return button(label, action, false);
+    }
+    private Button button(String label, Runnable action, boolean primary) {
         Button b = new Button(this);
         b.setText(label);
         b.setTextColor(WHITE);
         b.setTextSize(16);
         b.setAllCaps(false);
-        b.setBackground(shape(PANEL, Color.rgb(42, 53, 67)));
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        b.setPadding(dp(14), 0, dp(14), 0);
+        b.setFocusableInTouchMode(true);
+        b.setBackground(shape(primary ? ACCENT : PANEL, Color.TRANSPARENT));
         b.setOnClickListener(v -> action.run());
         b.setOnFocusChangeListener((v, focused) -> {
-            b.setBackground(shape(focused ? Color.rgb(28, 55, 73) : PANEL, focused ? ACCENT : Color.rgb(42, 53, 67)));
-            b.setScaleX(focused ? 1.04f : 1f);
-            b.setScaleY(focused ? 1.04f : 1f);
+            b.setBackground(shape(focused ? WHITE : (primary ? ACCENT : PANEL), Color.TRANSPARENT));
+            b.setTextColor(focused ? BG : WHITE);
+            b.setScaleX(focused ? 1.06f : 1f);
+            b.setScaleY(focused ? 1.06f : 1f);
+            b.setElevation(focused ? dp(10) : 0);
         });
         return b;
     }
 
     private void shell(String title) {
+        ui.removeCallbacks(hidePlayerOverlay);
         clearCustomVideoView();
         playerFullscreen = false;
+        sourceRequest++;
+        if (nativePlayer != null) { nativePlayer.stopPlayback(); nativePlayer = null; }
+        playerOverlay = null;
+        overlayButtons.clear();
+        focusRows.clear();
+        navButtons.clear();
         getWindow().getDecorView().setSystemUiVisibility(0);
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
@@ -136,19 +182,23 @@ public final class MainActivity extends Activity {
         root.addView(entire, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout rail = column();
         rail.setPadding(dp(12), dp(20), dp(12), dp(20));
-        rail.setBackgroundColor(Color.rgb(12, 16, 22));
+        rail.setBackgroundColor(Color.rgb(12, 12, 12));
         entire.addView(rail, new LinearLayout.LayoutParams(dp(126), -1));
         TextView brand = text("F", 36, ACCENT, true);
         brand.setGravity(Gravity.CENTER);
         rail.addView(brand, new LinearLayout.LayoutParams(-1, dp(62)));
         for (String name : new String[]{"Home", "Search", "Movies", "TV Shows", "Anime", "Sports", "My Space"}) {
             Button nav = button(name, () -> openSection(name));
+            navButtons.add(nav);
+            if (name.equals(section)) selectedNavButton = nav;
             nav.setTextSize(13);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54));
             p.bottomMargin = dp(8);
             rail.addView(nav, p);
         }
         ScrollView scroller = new ScrollView(this);
+        scroller.setClipChildren(false);
+        scroller.setClipToPadding(false);
         scroller.setFillViewport(true);
         scroller.setVerticalScrollBarEnabled(false);
         entire.addView(scroller, new LinearLayout.LayoutParams(0, -1, 1));
@@ -193,10 +243,14 @@ public final class MainActivity extends Activity {
         gap(content, 8);
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
+        scroll.setClipChildren(false);
+        scroll.setClipToPadding(false);
         LinearLayout cards = row();
         scroll.addView(cards);
         content.addView(scroll);
         gap(content, 22);
+        List<View> focusRow = new ArrayList<>();
+        focusRows.add(focusRow);
         int request = generation;
         api.object(path, (json, error) -> {
             if (request != generation) return;
@@ -205,8 +259,13 @@ public final class MainActivity extends Activity {
             if (entries == null) return;
             for (int i = 0; i < Math.min(entries.length(), 18); i++) {
                 JSONObject o = entries.optJSONObject(i);
-                if (o != null) cards.addView(card(Item.from(o, kind), false));
+                if (o != null) {
+                    View tile = card(Item.from(o, kind), false);
+                    cards.addView(tile);
+                    focusRow.add(tile);
+                }
             }
+            if (heading.equals("Trending") && !focusRow.isEmpty()) focusRow.get(0).requestFocus();
         });
     }
 
@@ -225,18 +284,28 @@ public final class MainActivity extends Activity {
 
     private void fillGrid(LinearLayout target, JSONArray entries, String kind) {
         target.removeAllViews();
+        focusRows.clear();
         if (entries == null || entries.length() == 0) { target.addView(text("No results", 17, MUTED, false)); return; }
         LinearLayout line = null;
+        List<View> focusRow = null;
         for (int i = 0; i < Math.min(entries.length(), 60); i++) {
-            if (i % 5 == 0) { line = row(); line.setGravity(Gravity.TOP); target.addView(line); }
+            if (i % 5 == 0) {
+                line = row(); line.setGravity(Gravity.TOP); target.addView(line);
+                focusRow = new ArrayList<>(); focusRows.add(focusRow);
+            }
             JSONObject o = entries.optJSONObject(i);
-            if (o != null) line.addView(card(Item.from(o, kind), false));
+            if (o != null) {
+                View tile = card(Item.from(o, kind), false);
+                line.addView(tile);
+                focusRow.add(tile);
+            }
         }
+        if (!focusRows.isEmpty() && !focusRows.get(0).isEmpty()) focusRows.get(0).get(0).requestFocus();
     }
 
     private View card(Item item, boolean sports) {
         LinearLayout box = column();
-        box.setFocusable(true);
+        box.setFocusableInTouchMode(true);
         box.setClickable(true);
         box.setBackground(shape(PANEL, Color.TRANSPARENT));
         ImageView image = new ImageView(this);
@@ -257,10 +326,10 @@ public final class MainActivity extends Activity {
         box.setLayoutParams(p);
         box.setOnClickListener(v -> { if (sports) showSportsPlayer(item); else showDetail(item); });
         box.setOnFocusChangeListener((v, focus) -> {
-            box.setBackground(shape(focus ? Color.rgb(25, 42, 54) : PANEL, focus ? ACCENT : Color.TRANSPARENT));
-            box.setScaleX(focus ? 1.045f : 1f);
-            box.setScaleY(focus ? 1.045f : 1f);
-            if (focus) box.bringToFront();
+            box.setBackground(shape(PANEL, focus ? WHITE : Color.TRANSPARENT));
+            box.setScaleX(focus ? 1.06f : 1f);
+            box.setScaleY(focus ? 1.06f : 1f);
+            box.setElevation(focus ? dp(12) : 0);
         });
         return box;
     }
@@ -306,8 +375,12 @@ public final class MainActivity extends Activity {
             if (request != generation) return;
             if (error != null || json == null) { grid.addView(text("Sports unavailable", 18, MUTED, false)); return; }
             LinearLayout line = null;
+            List<View> focusRow = null;
             for (int i = 0; i < Math.min(json.length(), 35); i++) {
-                if (i % 5 == 0) { line = row(); line.setGravity(Gravity.TOP); grid.addView(line); }
+                if (i % 5 == 0) {
+                    line = row(); line.setGravity(Gravity.TOP); grid.addView(line);
+                    focusRow = new ArrayList<>(); focusRows.add(focusRow);
+                }
                 JSONObject o = json.optJSONObject(i);
                 if (o == null) continue;
                 Item item = new Item();
@@ -323,8 +396,11 @@ public final class MainActivity extends Activity {
                     JSONObject source = sources.optJSONObject(0);
                     if (source != null) item.backdrop = source.optString("source") + "/" + source.optString("id");
                 }
-                line.addView(card(item, true));
+                View tile = card(item, true);
+                line.addView(tile);
+                focusRow.add(tile);
             }
+            if (!focusRows.isEmpty() && !focusRows.get(0).isEmpty()) focusRows.get(0).get(0).requestFocus();
         });
     }
 
@@ -348,9 +424,19 @@ public final class MainActivity extends Activity {
         TextView synopsis = text(item.overview, 16, WHITE, false);
         content.addView(synopsis);
         gap(content, 18);
-        Button watch = button("Watch - choose source", () -> showPlayer(item, season, episode));
-        content.addView(watch, new LinearLayout.LayoutParams(dp(260), dp(55)));
-        watch.requestFocus();
+        content.addView(text("Choose a source", 20, WHITE, true));
+        gap(content, 10);
+        LinearLayout sources = row();
+        content.addView(sources);
+        String[] names = sourceNames(item);
+        for (int i = 0; i < names.length; i++) {
+            final int source = i;
+            Button choice = button(names[i], () -> showPlayer(item, season, episode, source), i == 0);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(150), dp(55));
+            p.rightMargin = dp(12);
+            sources.addView(choice, p);
+            if (i == 0) choice.requestFocus();
+        }
         int request = generation;
         api.object("/api/tmdb/" + item.kind + "/" + item.id, (json, error) -> {
             if (request != generation || json == null) return;
@@ -399,7 +485,7 @@ public final class MainActivity extends Activity {
                 JSONObject e = entries.optJSONObject(i);
                 if (e == null) continue;
                 int ep = e.optInt("episode_number", i + 1);
-                Button b = button(ep + ". " + e.optString("name", "Episode") + "    " + e.optString("air_date", ""), () -> showPlayer(item, number, ep));
+                Button b = button(ep + ". " + e.optString("name", "Episode") + "    " + e.optString("air_date", ""), () -> chooseSource(item, number, ep));
                 LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54));
                 p.bottomMargin = dp(8);
                 target.addView(b, p);
@@ -409,11 +495,17 @@ public final class MainActivity extends Activity {
 
     private void showSportsPlayer(Item item) {
         selected = item;
-        showPlayer(item, 1, 1);
+        showPlayer(item, 1, 1, 0);
+    }
+
+    private void chooseSource(Item item, int s, int e) {
+        String[] names = sourceNames(item);
+        new AlertDialog.Builder(this).setTitle("Choose a source")
+            .setItems(names, (dialog, which) -> showPlayer(item, s, e, which)).show();
     }
 
     private String[] sourceNames(Item item) {
-        return item.kind.equals("sport") ? new String[]{"Stream 1"} : new String[]{"Bolt", "Fast", "Rift"};
+        return item.kind.equals("sport") ? new String[]{"Stream 1"} : new String[]{"Bolt", "Rift", "Fast"};
     }
 
     private String sourceUrl(Item item, int source, int s, int e) {
@@ -423,19 +515,22 @@ public final class MainActivity extends Activity {
         }
         String id = String.valueOf(item.id);
         String suffix = item.kind.equals("tv") ? "/tv/" + id + "/" + s + "/" + e : "/movie/" + id;
-        if (source == 0) return "https://vidbolt.xyz" + suffix + "?theme=00A8E1&autoPlay=true";
-        if (source == 1) return "https://bingr.one/watch" + suffix;
-        return "https://embed.vidrift.in/embed" + suffix;
+        if (source == 0) return "https://vidbolt.xyz" + suffix + "?theme=E50914&autoPlay=true";
+        if (source == 1) return "https://embed.vidrift.in/embed" + suffix;
+        return "https://bingr.one/watch" + suffix;
     }
 
-    private void showPlayer(Item item, int s, int e) {
+    private void showPlayer(Item item, int s, int e, int source) {
         selected = item;
         season = s;
         episode = e;
+        currentSourceIndex = source;
         playerOpen = true;
         detailOpen = !item.kind.equals("sport");
         generation++;
         clearCustomVideoView();
+        sourceRequest++;
+        if (nativePlayer != null) { nativePlayer.stopPlayback(); nativePlayer = null; }
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -451,14 +546,8 @@ public final class MainActivity extends Activity {
         TextView title = text("  " + item.title + (item.kind.equals("tv") ? "  S" + s + " E" + e : ""), 20, WHITE, true);
         bar.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
         String[] names = sourceNames(item);
-        Button sources = button("Source: " + names[0], () -> { });
-        sources.setOnClickListener(v -> new AlertDialog.Builder(this)
-            .setTitle("Select video source")
-            .setItems(names, (dialog, which) -> {
-                sources.setText("Source: " + names[which]);
-                loadEmbed(item, which, s, e);
-            })
-            .show());
+        Button sources = button("Source: " + names[source], () -> choosePlayerSource(item));
+        barSourceButton = sources;
         bar.addView(sources, new LinearLayout.LayoutParams(dp(180), dp(50)));
         Button fullscreen = button("Fullscreen", this::enterPlayerFullscreen);
         bar.addView(fullscreen, new LinearLayout.LayoutParams(dp(135), dp(50)));
@@ -491,16 +580,21 @@ public final class MainActivity extends Activity {
             }
         });
         playerScreen.addView(player, new LinearLayout.LayoutParams(-1, 0, 1));
-        loadEmbed(item, 0, s, e);
+        player.setVisibility(View.GONE);
+        playerStatus = text("Preparing " + names[source] + "...", 20, WHITE, true);
+        playerStatus.setGravity(Gravity.CENTER);
+        playerScreen.addView(playerStatus, new LinearLayout.LayoutParams(-1, 0, 1));
+        loadSource(item, source, s, e);
         if (item.kind.equals("tv")) {
             LinearLayout controls = row();
             episodeControls = controls;
             playerScreen.addView(controls, new LinearLayout.LayoutParams(-1, dp(56)));
-            controls.addView(button("Previous episode", () -> showPlayer(item, s, Math.max(1, e - 1))), new LinearLayout.LayoutParams(dp(210), dp(50)));
-            controls.addView(button("Next episode", () -> showPlayer(item, s, e + 1)), new LinearLayout.LayoutParams(dp(190), dp(50)));
+            controls.addView(button("Previous episode", () -> showPlayer(item, s, Math.max(1, e - 1), currentSourceIndex)), new LinearLayout.LayoutParams(dp(210), dp(50)));
+            controls.addView(button("Next episode", () -> showPlayer(item, s, e + 1, currentSourceIndex)), new LinearLayout.LayoutParams(dp(190), dp(50)));
         } else episodeControls = null;
+        buildPlayerOverlay(item);
         enterPlayerFullscreen();
-        player.requestFocus();
+        if (player.getVisibility() == View.VISIBLE) player.requestFocus();
     }
 
     private void enterPlayerFullscreen() {
@@ -510,6 +604,109 @@ public final class MainActivity extends Activity {
         if (playerScreen != null) playerScreen.setPadding(0, 0, 0, 0);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+        revealPlayerOverlay(true);
+    }
+
+    private void buildPlayerOverlay(Item item) {
+        overlayButtons.clear();
+        playerOverlay = column();
+        playerOverlay.setBackgroundColor(Color.argb(230, 12, 12, 12));
+        playerOverlay.setPadding(dp(26), dp(12), dp(26), dp(18));
+        FrameLayout.LayoutParams placement = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        root.addView(playerOverlay, placement);
+        String subtitle = item.title + (item.kind.equals("tv") ? "  |  Season " + season + " Episode " + episode : "");
+        playerOverlay.addView(text(subtitle, 19, WHITE, true));
+        gap(playerOverlay, 10);
+        LinearLayout actions = row();
+        playerOverlay.addView(actions, new LinearLayout.LayoutParams(-1, dp(52)));
+        if (item.kind.equals("tv")) {
+            addOverlayButton(actions, "Previous", () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex), false);
+        }
+        overlaySourceButton = addOverlayButton(actions, "Source: " + sourceNames(item)[currentSourceIndex], () -> choosePlayerSource(item), false);
+        if (item.kind.equals("tv")) {
+            addOverlayButton(actions, "Next episode", () -> showPlayer(item, season, episode + 1, currentSourceIndex), true);
+        }
+        addOverlayButton(actions, "Retry", () -> loadSource(item, currentSourceIndex, season, episode), false);
+        addOverlayButton(actions, "Exit fullscreen", this::exitPlayerFullscreen, false);
+    }
+
+    private Button addOverlayButton(LinearLayout actions, String label, Runnable action, boolean primary) {
+        Button b = button(label, action, primary);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(48), 1);
+        p.rightMargin = dp(12);
+        actions.addView(b, p);
+        overlayButtons.add(b);
+        return b;
+    }
+
+    private void revealPlayerOverlay(boolean focus) {
+        if (!playerFullscreen || playerOverlay == null) return;
+        ui.removeCallbacks(hidePlayerOverlay);
+        playerOverlay.setVisibility(View.VISIBLE);
+        playerOverlay.bringToFront();
+        if (focus && !overlayButtons.isEmpty()) overlayButtons.get(0).requestFocus();
+        ui.postDelayed(hidePlayerOverlay, 8000);
+    }
+
+    private void choosePlayerSource(Item item) {
+        String[] names = sourceNames(item);
+        new AlertDialog.Builder(this).setTitle("Choose a source")
+            .setItems(names, (dialog, which) -> loadSource(item, which, season, episode)).show();
+    }
+
+    private void loadSource(Item item, int source, int s, int e) {
+        clearCustomVideoView();
+        currentSourceIndex = source;
+        int request = ++sourceRequest;
+        String label = "Source: " + sourceNames(item)[source];
+        if (barSourceButton != null) barSourceButton.setText(label);
+        if (overlaySourceButton != null) overlaySourceButton.setText(label);
+        if (nativePlayer != null) {
+            nativePlayer.stopPlayback();
+            playerScreen.removeView(nativePlayer);
+            nativePlayer = null;
+        }
+        if (player != null) { player.stopLoading(); player.setVisibility(View.GONE); }
+        if (playerStatus != null) {
+            playerStatus.setText("Preparing " + sourceNames(item)[source] + "...");
+            playerStatus.setVisibility(View.VISIBLE);
+        }
+        if (source == 1 && !item.kind.equals("sport")) {
+            String embed = sourceUrl(item, source, s, e);
+            api.riftStream(embed, (stream, error) -> {
+                if (request != sourceRequest || !playerOpen) return;
+                if (error != null || stream == null) { loadEmbed(item, source, s, e); return; }
+                playNativeRift(item, source, s, e, stream, embed, request);
+            });
+        } else loadEmbed(item, source, s, e);
+    }
+
+    private void playNativeRift(Item item, int source, int s, int e, String stream, String referer, int request) {
+        VideoView video = new VideoView(this);
+        nativePlayer = video;
+        video.setBackgroundColor(Color.BLACK);
+        video.setFocusableInTouchMode(true);
+        playerScreen.addView(video, 1, new LinearLayout.LayoutParams(-1, 0, 1));
+        if (playerStatus != null) playerStatus.setVisibility(View.GONE);
+        HashMap<String, String> headers = new HashMap<>();
+        headers.put("Referer", referer);
+        video.setOnPreparedListener(media -> {
+            if (request != sourceRequest) return;
+            video.setBackgroundColor(Color.TRANSPARENT);
+            video.start();
+            revealPlayerOverlay(false);
+        });
+        video.setOnErrorListener((media, what, extra) -> {
+            if (request == sourceRequest) {
+                video.stopPlayback();
+                playerScreen.removeView(video);
+                if (nativePlayer == video) nativePlayer = null;
+                loadEmbed(item, source, s, e);
+            }
+            return true;
+        });
+        video.setVideoURI(Uri.parse(stream), headers);
+        video.requestFocus();
     }
 
     private void clearCustomVideoView() {
@@ -524,6 +721,8 @@ public final class MainActivity extends Activity {
     }
 
     private void exitPlayerFullscreen() {
+        ui.removeCallbacks(hidePlayerOverlay);
+        if (playerOverlay != null) playerOverlay.setVisibility(View.GONE);
         clearCustomVideoView();
         playerFullscreen = false;
         getWindow().getDecorView().setSystemUiVisibility(0);
@@ -535,12 +734,93 @@ public final class MainActivity extends Activity {
 
     private void loadEmbed(Item item, int source, int s, int e) {
         if (player == null) return;
+        if (playerStatus != null) playerStatus.setVisibility(View.GONE);
+        player.setVisibility(View.VISIBLE);
         String url = sourceUrl(item, source, s, e);
         if (url.isEmpty()) return;
         String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'></head>" +
             "<body style='margin:0;background:#000;overflow:hidden'><iframe title='Video' src='" + url +
             "' allow='autoplay;fullscreen;picture-in-picture' allowfullscreen style='border:0;width:100vw;height:100vh'></iframe></body></html>";
         player.loadDataWithBaseURL("https://pantyflix.com/", html, "text/html", "UTF-8", null);
+        revealPlayerOverlay(false);
+    }
+
+    private boolean moveCatalogFocus(int keyCode) {
+        View focused = getCurrentFocus();
+        if (focused == null || focusRows.isEmpty()) return false;
+        if (navButtons.contains(focused)) {
+            if (keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
+            for (List<View> row : focusRows) {
+                if (!row.isEmpty()) return focusTile(row.get(0));
+            }
+            return false;
+        }
+        int rowIndex = -1;
+        int columnIndex = -1;
+        for (int r = 0; r < focusRows.size(); r++) {
+            int c = focusRows.get(r).indexOf(focused);
+            if (c >= 0) { rowIndex = r; columnIndex = c; break; }
+        }
+        if (rowIndex < 0) return false;
+        List<View> row = focusRows.get(rowIndex);
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+            if (columnIndex > 0) return focusTile(row.get(columnIndex - 1));
+            if (selectedNavButton != null) return focusTile(selectedNavButton);
+        } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+            if (columnIndex + 1 < row.size()) return focusTile(row.get(columnIndex + 1));
+            return true;
+        } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? -1 : 1;
+            for (int r = rowIndex + direction; r >= 0 && r < focusRows.size(); r += direction) {
+                List<View> targetRow = focusRows.get(r);
+                if (!targetRow.isEmpty()) return focusTile(targetRow.get(Math.min(columnIndex, targetRow.size() - 1)));
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean focusTile(View target) {
+        if (!target.requestFocus()) return false;
+        target.requestRectangleOnScreen(new Rect(0, 0, target.getWidth(), target.getHeight()), false);
+        return true;
+    }
+
+    private boolean movePlayerFocus(int keyCode) {
+        if (overlayButtons.isEmpty()) return false;
+        if (playerOverlay.getVisibility() != View.VISIBLE) {
+            revealPlayerOverlay(true);
+            return true;
+        }
+        View focused = getCurrentFocus();
+        int index = overlayButtons.indexOf(focused);
+        if (index < 0) index = 0;
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) index = Math.max(0, index - 1);
+        else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) index = Math.min(overlayButtons.size() - 1, index + 1);
+        else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) index = 0;
+        else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) index = overlayButtons.size() - 1;
+        else return false;
+        revealPlayerOverlay(false);
+        overlayButtons.get(index).requestFocus();
+        return true;
+    }
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        int code = event.getKeyCode();
+        boolean directional = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
+            || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
+        if (event.getAction() == KeyEvent.ACTION_DOWN && directional) {
+            if (playerOpen && playerFullscreen && movePlayerFocus(code)) return true;
+            if (!playerOpen && !detailOpen && moveCatalogFocus(code)) return true;
+        }
+        if (event.getAction() == KeyEvent.ACTION_DOWN && nativePlayer != null
+            && (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PLAY || code == KeyEvent.KEYCODE_MEDIA_PAUSE)) {
+            if (code == KeyEvent.KEYCODE_MEDIA_PAUSE || (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && nativePlayer.isPlaying())) nativePlayer.pause();
+            else nativePlayer.start();
+            revealPlayerOverlay(false);
+            return true;
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     @Override public void onBackPressed() {
@@ -561,7 +841,9 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        ui.removeCallbacks(hidePlayerOverlay);
         clearCustomVideoView();
+        if (nativePlayer != null) nativePlayer.stopPlayback();
         if (player != null) { player.stopLoading(); player.destroy(); }
         api.close();
         super.onDestroy();

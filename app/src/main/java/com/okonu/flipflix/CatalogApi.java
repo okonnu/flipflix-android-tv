@@ -20,6 +20,7 @@ import java.util.concurrent.Executors;
 final class CatalogApi {
     interface Result { void done(JSONObject json, Exception error); }
     interface ArrayResult { void done(JSONArray json, Exception error); }
+    interface StringResult { void done(String value, Exception error); }
     private final ExecutorService network = Executors.newFixedThreadPool(4);
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final LruCache<String, Bitmap> images = new LruCache<String, Bitmap>(64) {
@@ -47,6 +48,37 @@ final class CatalogApi {
             JSONArray response = data;
             Exception error = failure;
             ui.post(() -> result.done(response, error));
+        });
+    }
+
+    void riftStream(String embedUrl, StringResult result) {
+        network.execute(() -> {
+            String stream = null;
+            Exception failure = null;
+            try {
+                String html = read(embedUrl);
+                String marker = "var embedMeta = ";
+                int start = html.indexOf(marker);
+                int end = start < 0 ? -1 : html.indexOf(";</script>", start);
+                if (end < 0) throw new IllegalStateException("Rift stream metadata unavailable");
+                JSONObject meta = new JSONObject(html.substring(start + marker.length(), end));
+                JSONArray options = meta.optJSONArray("orionStreams");
+                if (options != null) {
+                    for (int i = 0; i < options.length(); i++) {
+                        JSONObject option = options.optJSONObject(i);
+                        if (option == null || !option.optBoolean("direct")) continue;
+                        String path = option.optString("url", "");
+                        if (!path.startsWith("/") && !path.startsWith("https://")) continue;
+                        if (!path.contains(".m3u8") && !path.contains(".mp4")) continue;
+                        stream = path.startsWith("/") ? "https://embed.vidrift.in" + path : path;
+                        break;
+                    }
+                }
+                if (stream == null) throw new IllegalStateException("No direct Rift stream");
+            } catch (Exception e) { failure = e; }
+            String resolved = stream;
+            Exception error = failure;
+            ui.post(() -> result.done(resolved, error));
         });
     }
 
