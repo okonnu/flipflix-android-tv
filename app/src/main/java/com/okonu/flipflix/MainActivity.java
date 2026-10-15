@@ -1,6 +1,7 @@
 package com.okonu.flipflix;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -23,8 +24,6 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.Spinner;
-import android.widget.ArrayAdapter;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -438,11 +437,16 @@ public final class MainActivity extends Activity {
         bar.addView(back, new LinearLayout.LayoutParams(dp(100), dp(52)));
         TextView title = text("  " + item.title + (item.kind.equals("tv") ? "  S" + s + " E" + e : ""), 20, WHITE, true);
         bar.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
-        Spinner sources = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, sourceNames(item));
-        sources.setAdapter(adapter);
-        sources.setBackground(shape(PANEL, ACCENT));
-        bar.addView(sources, new LinearLayout.LayoutParams(dp(150), dp(50)));
+        String[] names = sourceNames(item);
+        Button sources = button("Source: " + names[0], () -> { });
+        sources.setOnClickListener(v -> new AlertDialog.Builder(this)
+            .setTitle("Select video source")
+            .setItems(names, (dialog, which) -> {
+                sources.setText("Source: " + names[which]);
+                loadEmbed(item, which, s, e);
+            })
+            .show());
+        bar.addView(sources, new LinearLayout.LayoutParams(dp(180), dp(50)));
         player = new WebView(this);
         player.setBackgroundColor(Color.BLACK);
         player.setFocusable(true);
@@ -462,10 +466,7 @@ public final class MainActivity extends Activity {
             }
         });
         screen.addView(player, new LinearLayout.LayoutParams(-1, 0, 1));
-        sources.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) { loadEmbed(item, position, s, e); }
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
-        });
+        loadEmbed(item, 0, s, e);
         if (item.kind.equals("tv")) {
             LinearLayout controls = row();
             screen.addView(controls, new LinearLayout.LayoutParams(-1, dp(56)));
