@@ -32,7 +32,7 @@ final class PlaybackControls extends LinearLayout {
     private final List<ImageButton> buttons = new ArrayList<>();
     private final SeekBar timeline;
     private final TextView time, hint;
-    private final ImageButton play, mute, source;
+    private final ImageButton play, mute, source, resize;
     private boolean active, menuOpen, scrubbing;
     private int wakeKey = -1, lastButton;
     private final Runnable hide = this::hideControls;
@@ -106,6 +106,7 @@ final class PlaybackControls extends LinearLayout {
         icon(actions, "Video quality", "quality", () -> options(true));
         source = icon(actions, "Choose source", "source", sourceAction);
         icon(actions, "Retry playback", "retry", retry);
+        resize = icon(actions, "Fill screen (crop edges)", "fill", this::toggleResize);
         icon(actions, "Exit fullscreen", "fullscreen", exit);
         hint.setTextColor(0xffb3b3b3);
         hint.setPadding(dp(8), dp(7), 0, 0);
@@ -166,6 +167,14 @@ final class PlaybackControls extends LinearLayout {
         if (!s.seekable) { Toast.makeText(activity, "This stream is not seekable yet.", Toast.LENGTH_SHORT).show(); return; }
         send("seek", String.valueOf(Math.max(0, Math.min(s.duration > 0 ? s.duration : Long.MAX_VALUE, s.position + offset))));
     }
+    private void toggleResize() {
+        PlaybackBackend.State s = state();
+        if (s.available && !s.canResize) {
+            Toast.makeText(activity, "This source does not expose video sizing. Try another source.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        send("resize", s.fillScreen ? "fit" : "fill");
+    }
     private void render() {
         PlaybackBackend.State s = state();
         if (!scrubbing) {
@@ -174,6 +183,7 @@ final class PlaybackControls extends LinearLayout {
         }
         setStateIcon(play, s.paused ? "Play" : "Pause", s.paused ? "play" : "pause");
         setStateIcon(mute, s.muted ? "Unmute" : "Mute", s.muted ? "muted" : "volume");
+        setStateIcon(resize, s.fillScreen ? "Fit picture (show all)" : "Fill screen (crop edges)", s.fillScreen ? "fit" : "fill");
     }
     private void setStateIcon(ImageButton button, String label, String glyph) {
         if (label.contentEquals(button.getContentDescription())) return;

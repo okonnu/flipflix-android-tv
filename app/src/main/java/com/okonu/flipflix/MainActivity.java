@@ -39,7 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class MainActivity extends Activity {
-    private static final int BG = Color.rgb(20, 20, 20);
+    private static final int BG = Color.BLACK;
     private static final int PANEL = Color.rgb(24, 24, 24);
     private static final int CONTROL = Color.rgb(65, 65, 65);
     private static final int WHITE = Color.WHITE;
@@ -371,14 +371,14 @@ public final class MainActivity extends Activity {
         box.setBackground(shape(BG, Color.TRANSPARENT));
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setBackground(shape(PANEL, Color.TRANSPARENT));
+        image.setBackground(shape(BG, Color.TRANSPARENT));
         image.setClipToOutline(true);
         box.addView(image, new FrameLayout.LayoutParams(-1, -1));
         String artwork = !sports && item.backdrop != null && !item.backdrop.isEmpty() ? item.backdrop : item.poster;
         api.image(image, artwork, sports);
         View shade = new View(this);
         shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0x00000000, 0xc0000000, 0xf0000000}));
+            new int[]{0x00000000, 0xc0000000, Color.BLACK}));
         box.addView(shade, new FrameLayout.LayoutParams(-1, dp(76), Gravity.BOTTOM));
         LinearLayout copy = column();
         copy.setPadding(dp(8), 0, dp(8), dp(7));
@@ -399,7 +399,7 @@ public final class MainActivity extends Activity {
         box.setLayoutParams(p);
         box.setOnClickListener(v -> { if (sports) showSportsPlayer(item); else showDetail(item); });
         box.setOnFocusChangeListener((v, focus) -> {
-            box.setBackground(shape(focus ? PANEL : BG, focus ? WHITE : Color.TRANSPARENT));
+            box.setBackground(shape(BG, focus ? WHITE : Color.TRANSPARENT));
             box.setElevation(focus ? dp(6) : 0);
             if (focus && onFocused != null) onFocused.run();
         });
@@ -594,11 +594,11 @@ public final class MainActivity extends Activity {
         api.image(hero, item.backdrop, false, 1280);
         View shade = new View(this);
         shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-            new int[]{0xeb141414, 0x80141414, 0x10141414}));
+            new int[]{0xeb000000, 0x80000000, 0x10000000}));
         root.addView(shade, 1, new FrameLayout.LayoutParams(-1, -1));
         View fade = new View(this);
         fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0x00141414, 0xd9141414}));
+            new int[]{0x00000000, Color.BLACK}));
         root.addView(fade, 2, new FrameLayout.LayoutParams(-1, dp(220), Gravity.BOTTOM));
         Button back = button("Back to " + section, () -> openSection(section));
         content.addView(back, new LinearLayout.LayoutParams(dp(200), dp(40)));

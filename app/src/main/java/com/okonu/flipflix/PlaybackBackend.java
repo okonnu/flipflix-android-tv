@@ -13,7 +13,7 @@ interface PlaybackBackend {
         }
     }
     final class State {
-        boolean available, seekable, paused = true, muted;
+        boolean available, seekable, paused = true, muted, canResize, fillScreen;
         long position, duration;
         final List<Option> subtitles = new ArrayList<>();
         final List<Option> qualities = new ArrayList<>();

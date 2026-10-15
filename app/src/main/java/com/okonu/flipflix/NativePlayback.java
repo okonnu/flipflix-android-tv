@@ -14,6 +14,7 @@ import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.ui.PlayerView;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
@@ -27,11 +28,12 @@ final class NativePlayback implements PlaybackBackend {
 
     NativePlayback(Context context, String url, String referer, JSONArray captions) {
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("Flipflix/0.1.6")
+            .setUserAgent("Flipflix/0.1.7")
             .setDefaultRequestProperties(Collections.singletonMap("Referer", referer));
         player = new ExoPlayer.Builder(context)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(context, http))).build();
         view = new PlayerView(context);
+        view.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
         view.setUseController(false);
         view.setPlayer(player);
         view.setFocusableInTouchMode(true);
@@ -60,6 +62,8 @@ final class NativePlayback implements PlaybackBackend {
         s.seekable = player.isCurrentMediaItemSeekable();
         s.paused = !player.getPlayWhenReady();
         s.muted = player.getVolume() == 0;
+        s.canResize = true;
+        s.fillScreen = view.getResizeMode() == AspectRatioFrameLayout.RESIZE_MODE_ZOOM;
         s.position = player.getCurrentPosition();
         s.duration = Math.max(0, player.getDuration());
         List<Tracks.Group> groups = player.getCurrentTracks().getGroups();
@@ -94,6 +98,10 @@ final class NativePlayback implements PlaybackBackend {
         else if (name.equals("pause")) player.pause();
         else if (name.equals("toggle")) player.setPlayWhenReady(!player.getPlayWhenReady());
         else if (name.equals("mute")) player.setVolume(player.getVolume() == 0 ? 1 : 0);
+        else if (name.equals("resize") && (value.equals("fill") || value.equals("fit"))) {
+            // ZOOM preserves the movie's shape and crops overflow; FILL would stretch it.
+            view.setResizeMode(value.equals("fill") ? AspectRatioFrameLayout.RESIZE_MODE_ZOOM : AspectRatioFrameLayout.RESIZE_MODE_FIT);
+        }
         else if (name.equals("seek") && player.isCurrentMediaItemSeekable()) {
             player.seekTo(Math.max(0, Math.min(Long.parseLong(value), Math.max(0, player.getDuration()))));
         } else if (name.equals("subtitle") || name.equals("quality")) {

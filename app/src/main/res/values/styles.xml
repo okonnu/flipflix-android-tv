@@ -2,13 +2,13 @@
     <style name="FlipflixTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#E50914</item>
-        <item name="android:windowBackground">#141414</item>
-        <item name="android:colorBackground">#141414</item>
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:colorBackground">#000000</item>
         <item name="android:colorButtonNormal">#414141</item>
         <item name="android:textColorPrimary">#FFFFFF</item>
         <item name="android:textColorSecondary">#B3B3B3</item>
-        <item name="android:navigationBarColor">#141414</item>
-        <item name="android:statusBarColor">#141414</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
 </resources>

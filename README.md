@@ -18,6 +18,7 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 - TV launcher entry, no touchscreen requirement, landscape layout
 - Playback opens fullscreen with a compact Netflix-inspired timeline and icon row. The controls hide after **5 seconds without remote input**, even while a button has focus. Arrow or OK reveals them without accidentally activating the selected action. Menus stay open while choosing an option
 - Play/pause, back/forward 10 seconds, mute, subtitles, video quality, previous/next episode, source, retry, and exit fullscreen. Up focuses the timeline; left/right on the timeline seeks 10 seconds; Down returns to the buttons. Dedicated remote media keys also work in fullscreen
+- A Fill screen / Fit picture button beside Exit fullscreen. Fill scales the video proportionally and crops the edges to cover the player; Fit restores the whole picture. Each new playback starts in Fit. Native playback uses Media3's crop mode; accessible embedded videos use reversible, video-only styling, without changing page zoom or scaling the Android view. Bars encoded into the video itself may remain
 - Rift direct streams use Media3/ExoPlayer with native captions and supported quality tracks. Embedded sources use a small, event-driven HTML video bridge, with no continuous DOM scanning. Subtitle and quality choices come from the actual stream/provider, not a hard-coded list. When a provider does not expose an option, the menu explains that limitation
 - Remote Back exits fullscreen; Back again returns to the title. Pop-up windows and top-level off-site navigation are suppressed
 
@@ -27,7 +28,7 @@ This is an educational prototype, not an official Pantyflix client. Metadata, ar
 
 ## Visual styling
 
-The existing native components use the community [Netflix Design System 2024 reference](https://www.figma.com/design/mknKOvsPMV2oLlYXGZwUO9/?node-id=202-19090): #141414 backgrounds, #181818 surfaces, #E50914 accents, white primary playback actions, gray secondary actions, 4dp corners, compact landscape catalog tiles, gradient title previews, and thumbnail episode rows. Android system sans-serif fonts substitute for the reference's Netflix Sans. TV focus uses a visible white outline, adapting the reference's mouse-hover states for remote navigation. Flipflix keeps its own name and existing feature set.
+The existing native components use the community [Netflix Design System 2024 reference](https://www.figma.com/design/mknKOvsPMV2oLlYXGZwUO9/?node-id=202-19090), with the requested pure #000000 page/window backgrounds and artwork gradients fading into black. Dialog/input surfaces stay #181818, with #E50914 accents, white primary playback actions, gray secondary actions, 4dp corners, compact landscape catalog tiles, gradient title previews, and thumbnail episode rows. Android system sans-serif fonts substitute for the reference's Netflix Sans. TV focus uses a visible white outline, adapting the reference's mouse-hover states for remote navigation. Flipflix keeps its own name and existing feature set.
 
 ## Build instructions
 
@@ -43,7 +44,7 @@ This experimental release variant is non-debuggable but signed by the local Andr
 
 ## Playback regression tests
 
-`PlaybackControlsTest` runs on the Android TV emulator. It covers focused-button timeout, wake without accidental activation, D-pad seeking, menu timeout suspension, native playback/seek/mute/captions/track selection, an actual HTML video controlled through the WebView message bridge, whole-card carousel pages/top-border clipping, and opening every Home heading with the remote. The fixture is test-only and is not shipped in the release APK.
+`PlaybackControlsTest` runs on the Android TV emulator. It covers focused-button timeout, wake without accidental activation, D-pad seeking, menu timeout suspension, native playback/seek/mute/captions/track selection, remote Fit/Fill toggling and native crop geometry, an actual HTML video controlled and resized through the WebView message bridge, whole-card carousel pages/top-border clipping, and opening every Home heading with the remote. The fixture is test-only and is not shipped in the release APK.
 
 ```sh
 ANDROID_HOME=/home/okonu/Android/Sdk ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest

@@ -13,14 +13,19 @@ import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.graphics.Rect;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.util.TypedValue;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.Player;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -32,6 +37,9 @@ import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Real Android TV input and player tests. No test entry point is shipped in the APK. */
 @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
@@ -137,7 +145,55 @@ public final class PlaybackControlsTest {
                 assertTrue(n.player.getTrackSelectionParameters().disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_TEXT));
                 n.command("play", ""); assertFalse(n.state().paused);
             });
+            // A square player around the 4:3 fixture gives real letterboxing to test.
+            main(() -> {
+                nativeVideo[0].command("pause", "");
+                nativeVideo[0].view.setLayoutParams(new FrameLayout.LayoutParams(600, 600, Gravity.CENTER));
+                assertTrue(nativeVideo[0].state().canResize);
+                assertFalse(nativeVideo[0].state().fillScreen);
+                assertEquals(AspectRatioFrameLayout.RESIZE_MODE_FIT, nativeVideo[0].view.getResizeMode());
+            });
+            View content = nativeVideo[0].view.findViewById(androidx.media3.ui.R.id.exo_content_frame);
+            waitFor(() -> content.getWidth() == 600 && content.getHeight() < 600);
+            main(() -> {
+                nativeVideo[0].command("resize", "fill");
+                assertTrue(nativeVideo[0].state().fillScreen);
+                assertEquals(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, nativeVideo[0].view.getResizeMode());
+                assertTrue("Resizing must not resume a paused video", nativeVideo[0].state().paused);
+            });
+            waitFor(() -> content.getWidth() > 600 && content.getHeight() == 600);
+            main(() -> nativeVideo[0].command("resize", "fit"));
+            waitFor(() -> content.getWidth() == 600 && content.getHeight() < 600);
+            main(() -> assertFalse(nativeVideo[0].state().fillScreen));
         } finally { main(() -> { controls.deactivate(); nativeVideo[0].release(); }); }
+    }
+
+    @Test public void testFillControlTogglesWithRemoteAndKeepsFocus() {
+        FakeBackend backend = new FakeBackend(); install(backend);
+        AtomicBoolean selected = new AtomicBoolean();
+        for (int i = 0; i < 14 && !selected.get(); i++) {
+            main(() -> selected.set("Fill screen (crop edges)".contentEquals(activity.getCurrentFocus().getContentDescription())));
+            if (!selected.get()) key(KeyEvent.KEYCODE_DPAD_RIGHT);
+        }
+        assertTrue("Fill screen is reachable with the remote", selected.get());
+        main(() -> {
+            ViewGroup actions = (ViewGroup) activity.getCurrentFocus().getParent();
+            for (int i = 0; i < actions.getChildCount(); i++) {
+                if (actions.getChildAt(i) instanceof ImageButton) assertWhole(actions.getChildAt(i));
+            }
+        });
+        key(KeyEvent.KEYCODE_DPAD_CENTER);
+        assertEquals("resize", backend.last); assertEquals("fill", backend.value);
+        main(() -> assertEquals("Fit picture (show all)", activity.getCurrentFocus().getContentDescription()));
+        key(KeyEvent.KEYCODE_DPAD_CENTER);
+        assertEquals("fit", backend.value);
+        main(() -> assertEquals("Fill screen (crop edges)", activity.getCurrentFocus().getContentDescription()));
+        key(KeyEvent.KEYCODE_DPAD_DOWN);
+        key(KeyEvent.KEYCODE_DPAD_CENTER); // Wake only, keep Fit.
+        assertEquals("fit", backend.value);
+        main(() -> assertEquals("Fill screen (crop edges)", activity.getCurrentFocus().getContentDescription()));
+        key(KeyEvent.KEYCODE_DPAD_RIGHT);
+        main(() -> assertEquals("Exit fullscreen", activity.getCurrentFocus().getContentDescription()));
     }
 
     private File copyAsset(String name) throws Exception {
@@ -158,7 +214,8 @@ public final class PlaybackControlsTest {
             while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
             encoded = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
         }
-        String html = "<html><body style='margin:0;background:black'><video autoplay muted playsinline style='width:100vw;height:100vh' src='data:video/mp4;base64," + encoded
+        String html = "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+            + "<body style='margin:0;background:black'><video autoplay muted playsinline style='width:90vw;height:80vh;object-fit:contain;transform:translateY(12px)' src='data:video/mp4;base64," + encoded
             + "'><track kind='subtitles' label='English fixture' srclang='en' src='data:text/vtt,WEBVTT%0A%0A00:00:00.000%20--%3E%2000:00:24.000%0AFixture%0A'></video></body></html>";
         EmbeddedPlayback[] bridge = new EmbeddedPlayback[1]; WebView[] web = new WebView[1];
         main(() -> {
@@ -184,10 +241,31 @@ public final class PlaybackControlsTest {
             waitFor(() -> bridge[0].state().subtitles.size() == 2);
             main(() -> bridge[0].command("subtitle", "0")); waitFor(() -> bridge[0].state().subtitles.get(1).selected);
             main(() -> bridge[0].command("subtitle", "off")); waitFor(() -> bridge[0].state().subtitles.get(0).selected);
+            main(() -> { assertTrue(bridge[0].state().canResize); assertFalse(bridge[0].state().fillScreen); });
+            main(() -> bridge[0].command("resize", "fill")); waitFor(() -> bridge[0].state().fillScreen);
+            assertEquals("true", javascript(web[0], "(function(){var v=document.querySelector('video'),r=v.getBoundingClientRect();"
+                + "return getComputedStyle(v).objectFit==='cover' && Math.abs(r.width-innerWidth)<2 && Math.abs(r.height-innerHeight)<2"
+                + " && r.top===0 && r.left===0;})()"));
+            main(() -> bridge[0].command("resize", "fit")); waitFor(() -> !bridge[0].state().fillScreen);
+            assertEquals("true", javascript(web[0], "(function(){var v=document.querySelector('video');return !v.hasAttribute('data-flipflix-fill')"
+                + " && getComputedStyle(v).objectFit==='contain' && v.style.width==='90vw' && v.style.transform==='translateY(12px)';})()"));
+            // Replacing the provider's video must not lose the selected mode or keep a stale element.
+            main(() -> bridge[0].command("resize", "fill")); waitFor(() -> bridge[0].state().fillScreen);
+            javascript(web[0], "(function(){var v=document.querySelector('video'),n=v.cloneNode(true);n.removeAttribute('data-flipflix-fill');v.replaceWith(n);})()");
+            waitFor(() -> bridge[0].state().available && !bridge[0].state().paused);
+            // Explicit state refresh also covers players that replace their element while paused.
+            main(() -> bridge[0].refresh());
+            assertEquals("true", javascript(web[0], "document.querySelector('video').hasAttribute('data-flipflix-fill')"));
+            main(() -> bridge[0].command("resize", "fit")); waitFor(() -> !bridge[0].state().fillScreen);
             main(() -> bridge[0].command("play", "")); waitFor(() -> !bridge[0].state().paused);
         } finally { main(() -> { controls.deactivate(); web[0].destroy(); }); }
     }
     private interface Condition { boolean met(); }
+    private String javascript(WebView web, String script) throws Exception {
+        AtomicReference<String> value = new AtomicReference<>(); CountDownLatch done = new CountDownLatch(1);
+        main(() -> web.evaluateJavascript(script, result -> { value.set(result); done.countDown(); }));
+        assertTrue("JavaScript returned", done.await(5, TimeUnit.SECONDS)); return value.get();
+    }
     private void waitFor(Condition condition) {
         AtomicBoolean success = new AtomicBoolean(); long deadline = SystemClock.uptimeMillis() + 12000;
         while (!success.get() && SystemClock.uptimeMillis() < deadline) {
@@ -265,6 +343,20 @@ public final class PlaybackControlsTest {
             main(() -> assertEquals(expected, readField(activity, "section")));
         }
     }
+    @Test public void testCatalogBackgroundIsPureBlack() {
+        activity = getActivity();
+        main(() -> {
+            View root = (View) readField(activity, "root");
+            assertEquals(Color.BLACK, ((ColorDrawable) root.getBackground()).getColor());
+            TypedValue color = new TypedValue();
+            assertTrue(activity.getTheme().resolveAttribute(android.R.attr.colorBackground, color, true));
+            assertEquals(Color.BLACK, color.data);
+            assertTrue(activity.getTheme().resolveAttribute(android.R.attr.windowBackground, color, true));
+            assertEquals(Color.BLACK, color.data);
+            assertEquals(Color.BLACK, activity.getWindow().getNavigationBarColor());
+            assertEquals(Color.BLACK, activity.getWindow().getStatusBarColor());
+        });
+    }
     private Object readField(Object object, String name) {
         try { Field f = object.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(object); }
         catch (Exception e) { throw new AssertionError(e); }
@@ -274,11 +366,12 @@ public final class PlaybackControlsTest {
     }
     private static final class FakeBackend implements PlaybackBackend {
         final State s = new State(); int commands; String last, value;
-        FakeBackend() { s.available = true; s.seekable = true; s.position = 30000; s.duration = 120000; s.paused = false; }
+        FakeBackend() { s.available = true; s.seekable = true; s.canResize = true; s.position = 30000; s.duration = 120000; s.paused = false; }
         @Override public State state() { return s; }
         @Override public void command(String name, String value) {
             commands++; last = name; this.value = value;
             if (name.equals("seek")) s.position = Long.parseLong(value);
+            if (name.equals("resize")) s.fillScreen = value.equals("fill");
         }
     }
 }

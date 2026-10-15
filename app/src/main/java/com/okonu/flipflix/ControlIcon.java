@@ -77,6 +77,13 @@ final class ControlIcon extends Drawable {
         } else if (name.equals("retry")) {
             canvas.drawArc(4, 4, 20, 20, 40, 285, false, paint);
             line(canvas, 20, 3, 20, 9, 14, 9);
+        } else if (name.equals("fill")) {
+            canvas.drawRect(2, 4, 22, 20, paint);
+            line(canvas, 9, 11, 5, 7, 9, 7); line(canvas, 5, 7, 5, 11);
+            line(canvas, 15, 13, 19, 17, 15, 17); line(canvas, 19, 17, 19, 13);
+        } else if (name.equals("fit")) {
+            canvas.drawRect(2, 4, 22, 20, paint);
+            line(canvas, 2, 8, 22, 8); line(canvas, 2, 16, 22, 16);
         } else if (name.equals("fullscreen")) {
             line(canvas, 3, 9, 3, 3, 9, 3);
             line(canvas, 15, 3, 21, 3, 21, 9);

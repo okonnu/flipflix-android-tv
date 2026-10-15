@@ -46,6 +46,7 @@ final class EmbeddedPlayback implements PlaybackBackend {
                     && latest.duration > 60000 && json.optLong("duration") < 60000) return;
                 next.seekable = json.optBoolean("seekable"); next.paused = json.optBoolean("paused", true);
                 next.muted = json.optBoolean("muted"); next.position = Math.max(0, json.optLong("position"));
+                next.canResize = json.optBoolean("canResize"); next.fillScreen = json.optBoolean("fillScreen");
                 next.duration = Math.max(0, json.optLong("duration"));
                 readOptions(json.optJSONArray("subtitles"), next.subtitles);
                 readOptions(json.optJSONArray("qualities"), next.qualities);
