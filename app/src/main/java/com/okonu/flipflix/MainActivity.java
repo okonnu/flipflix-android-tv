@@ -38,14 +38,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class MainActivity extends Activity {
-    private static final int BG = Color.BLACK;
-    private static final int PANEL = Color.rgb(24, 24, 24);
-    private static final int CONTROL = Color.rgb(65, 65, 65);
+    private static final int BG = AppStyle.BG;
+    private static final int PANEL = AppStyle.PANEL;
+    private static final int CONTROL = AppStyle.CONTROL;
     private static final int WHITE = Color.WHITE;
-    private static final int MUTED = Color.rgb(179, 179, 179);
-    private static final int ACCENT = Color.rgb(229, 9, 20);
-    private static final Typeface REGULAR = Typeface.create("sans-serif", Typeface.NORMAL);
-    private static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
+    private static final int MUTED = AppStyle.MUTED;
+    private static final int ACCENT = AppStyle.ACCENT;
+    private static final Typeface REGULAR = AppStyle.REGULAR;
+    private static final Typeface MEDIUM = AppStyle.MEDIUM;
     private CatalogApi api = new CatalogApi();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<List<View>> focusRows = new ArrayList<>();
@@ -59,6 +59,9 @@ public final class MainActivity extends Activity {
     private FullCollection fullCollection;
     private Button loadMoreButton;
     private FrameLayout root;
+    private FrameLayout pageChrome;
+    private NavigationRail navigationRail;
+    private View lastContentFocus;
     private LinearLayout content;
     private WebView player;
     private NativePlayback nativePlayer;
@@ -180,11 +183,7 @@ public final class MainActivity extends Activity {
 
     private int dp(float value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
     private GradientDrawable shape(int color, int border) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(dp(4));
-        d.setStroke(dp(2), border);
-        return d;
+        return AppStyle.shape(this, color, border);
     }
     private TextView text(String value, int size, int color, boolean bold) {
         TextView t = new TextView(this);
@@ -206,7 +205,7 @@ public final class MainActivity extends Activity {
         Button b = new Button(this);
         b.setText(label);
         b.setTextColor(primary ? BG : WHITE);
-        b.setTextSize(16);
+        b.setTextSize(13);
         b.setAllCaps(false);
         b.setTypeface(MEDIUM);
         b.setSingleLine(true);
@@ -219,7 +218,7 @@ public final class MainActivity extends Activity {
         b.setStateListAnimator(null);
         b.setPadding(dp(14), 0, dp(14), 0);
         b.setFocusableInTouchMode(true);
-        b.setBackground(shape(primary ? WHITE : CONTROL, Color.TRANSPARENT));
+        AppStyle.button(b, primary, false);
         String glyph = null;
         if (label.equals("Bolt") || label.equals("Rift") || label.equals("Fast") || label.equals("Stream 1")) glyph = "play";
         else if (label.equals("Search")) glyph = "search";
@@ -238,9 +237,8 @@ public final class MainActivity extends Activity {
         }
         b.setOnClickListener(v -> action.run());
         b.setOnFocusChangeListener((v, focused) -> {
-            b.setBackground(shape(primary ? (focused ? 0xffe6e6e6 : WHITE) : (focused ? 0xff545454 : CONTROL), focused ? WHITE : Color.TRANSPARENT));
-            b.setTextColor(primary ? BG : WHITE);
-            if (icon != null) icon.color(primary ? BG : WHITE);
+            AppStyle.button(b, primary, focused);
+            if (icon != null) icon.color(primary || focused ? BG : WHITE);
             b.setElevation(focused ? dp(4) : 0);
         });
         return b;
@@ -269,24 +267,33 @@ public final class MainActivity extends Activity {
         playerScreen = null;
         playerStatus = null;
         root.removeAllViews();
+        lastContentFocus = null;
+        pageChrome = new FrameLayout(this);
+        root.addView(pageChrome, new FrameLayout.LayoutParams(-1, -1));
         TvScrollView scroller = new TvScrollView(this);
-        root.addView(scroller, new FrameLayout.LayoutParams(-1, -1));
+        FrameLayout.LayoutParams scrollParams = new FrameLayout.LayoutParams(-1, -1);
+        scrollParams.leftMargin = dp(62);
+        pageChrome.addView(scroller, scrollParams);
         content = column();
-        content.setPadding(dp(36), dp(16), dp(36), dp(34));
+        content.setPadding(dp(25), dp(24), dp(25), dp(34));
+        content.setClipChildren(false);
         scroller.addView(content);
+        navigationRail = new NavigationRail(this, this::openSection, () -> {});
+        pageChrome.addView(navigationRail, new FrameLayout.LayoutParams(dp(62), -1));
         LinearLayout header = row();
         content.addView(header, new LinearLayout.LayoutParams(-1, dp(52)));
         boolean brandTitle = title.equals("Flipflix");
-        TextView brand = text(brandTitle ? "FLIPFLIX" : title, brandTitle ? 30 : 26, brandTitle ? ACCENT : WHITE, true);
-        if (brandTitle) { brand.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD)); brand.setLetterSpacing(0.025f); }
+        TextView brand = text(brandTitle ? "DETAILS" : title, brandTitle ? 11 : 30, brandTitle ? MUTED : WHITE, true);
+        if (brandTitle) brand.setLetterSpacing(.17f);
         header.addView(brand, new LinearLayout.LayoutParams(0, -1, 1));
         Button action = button(section.equals("Home") ? "Search" : "Home", () -> openSection(section.equals("Home") ? "Search" : "Home"));
         topAction = action;
-        header.addView(action, new LinearLayout.LayoutParams(dp(120), dp(40)));
+        header.addView(action, new LinearLayout.LayoutParams(dp(110), dp(36)));
         gap(content, 16);
     }
 
     private void openSection(String name) {
+        if (name.equals("Browse")) { showBrowseMenu(); return; }
         section = name;
         detailOpen = false;
         playerOpen = false;
@@ -296,6 +303,33 @@ public final class MainActivity extends Activity {
         if (name.equals("Search")) searchScreen();
         else if (name.equals("Home") || name.equals("Library")) showDiscovery(name.equals("Library"));
         else showCollection(name);
+    }
+
+    private void showBrowseMenu() {
+        String[] destinations = {"Home", "Movies", "TV Shows", "Trending", "Anime", "Live Sports", "Library"};
+        String[] labels = {"Home", "Movies - browse & filter", "TV Shows - browse & filter", "Trending", "Anime", "Live Sports", "Library"};
+        View restore = getCurrentFocus();
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Browse")
+            .setItems(labels, (d, index) -> openSection(destinations[index])).setNegativeButton("Cancel", null).create();
+        dialog.setOnDismissListener(d -> {
+            if (restore != null && restore.isAttachedToWindow() && restore.isShown()) restore.requestFocus();
+        });
+        dialog.show(); AppStyle.dialog(dialog, 440, -2);
+        dialog.getListView().requestFocus();
+        int selectedIndex = java.util.Arrays.asList(destinations).indexOf(section);
+        dialog.getListView().setSelection(Math.max(0, selectedIndex));
+    }
+
+    private boolean enterRail() {
+        if (navigationRail == null || !navigationRail.isAttachedToWindow()) return false;
+        lastContentFocus = getCurrentFocus(); navigationRail.focusBrowse(); return true;
+    }
+    private void returnFromRail() {
+        View target = lastContentFocus;
+        if (target == null || !target.isAttachedToWindow() || !target.isShown()) {
+            target = filterButtons.isEmpty() ? topAction : filterButtons.get(lastFilterIndex);
+        }
+        if (target != null) focusTile(target);
     }
 
     private DiscoveryItem openFilm(String name, String slug, String year, String summary, String attribution) {
@@ -332,6 +366,7 @@ public final class MainActivity extends Activity {
     }
     private void showDiscovery(boolean library) {
         root.removeAllViews();
+        navigationRail = null; pageChrome = null;
         if (discoveryRows == null) discoveryRows = buildDiscoveryRows();
         List<DiscoveryRow> shown = discoveryRows;
         if (library) {
@@ -490,7 +525,7 @@ public final class MainActivity extends Activity {
         List<View> focusRow = null;
         for (int i = 0; i < Math.min(entries.length(), 60); i++) {
             if (i % 5 == 0) {
-                line = row(); line.setGravity(Gravity.TOP); target.addView(line);
+                line = gridRow(); target.addView(line);
                 focusRow = new ArrayList<>(); focusRows.add(focusRow);
             }
             JSONObject o = entries.optJSONObject(i);
@@ -504,48 +539,53 @@ public final class MainActivity extends Activity {
     }
 
     private View card(Item item, boolean sports, Runnable onFocused) {
-        int width = (getResources().getDisplayMetrics().widthPixels - dp(72) - dp(40)) / 5;
+        int width = (getResources().getDisplayMetrics().widthPixels - dp(170)) / 5;
         if (section.equals("Home")) width = (getResources().getDisplayMetrics().widthPixels - dp(88) - dp(30)) / 4;
         FrameLayout box = new FrameLayout(this);
         box.setFocusableInTouchMode(true);
         box.setClickable(true);
-        box.setPadding(dp(3), dp(3), dp(3), dp(3));
-        box.setBackground(shape(BG, Color.TRANSPARENT));
+        box.setClipChildren(false);
+        int pictureHeight = Math.round(width * 9f / 16f);
+        FrameLayout picture = new FrameLayout(this);
+        picture.setTag("catalog-artwork");
+        picture.setBackground(shape(PANEL, Color.TRANSPARENT));
+        picture.setClipToOutline(true);
+        box.addView(picture, new FrameLayout.LayoutParams(-1, pictureHeight));
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setBackground(shape(BG, Color.TRANSPARENT));
-        image.setClipToOutline(true);
-        box.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        picture.addView(image, new FrameLayout.LayoutParams(-1, -1));
         String artwork = !sports && item.backdrop != null && !item.backdrop.isEmpty() ? item.backdrop : item.poster;
         api.image(image, artwork, sports);
-        View shade = new View(this);
-        shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0x00000000, 0xc0000000, Color.BLACK}));
-        box.addView(shade, new FrameLayout.LayoutParams(-1, dp(76), Gravity.BOTTOM));
         LinearLayout copy = column();
-        copy.setPadding(dp(8), 0, dp(8), dp(7));
-        box.addView(copy, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
-        TextView label = text(item.title, 14, WHITE, true);
-        label.setMaxLines(2);
+        copy.setTag("catalog-label"); copy.setPadding(dp(2), dp(7), dp(2), 0);
+        FrameLayout.LayoutParams copyParams = new FrameLayout.LayoutParams(-1, -2); copyParams.topMargin = pictureHeight;
+        box.addView(copy, copyParams);
+        TextView label = text(item.title, 12, WHITE, true);
+        label.setMaxLines(1);
         label.setEllipsize(TextUtils.TruncateAt.END);
-        label.setShadowLayer(dp(2), 0, dp(1), Color.BLACK);
         copy.addView(label, new LinearLayout.LayoutParams(-1, -2));
-        TextView info = text(item.year + (item.rating.isEmpty() ? "" : "  |  " + item.rating), 12, MUTED, false);
+        TextView info = text(item.year + (item.rating.isEmpty() ? "" : "  |  " + item.rating), 10, MUTED, false);
         info.setSingleLine(true);
         info.setPadding(0, dp(3), 0, 0);
         copy.addView(info, new LinearLayout.LayoutParams(-1, -2));
         box.setContentDescription(item.title + ". " + info.getText());
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(width, Math.round((width - dp(6)) * 9f / 16f) + dp(6));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(width, pictureHeight + dp(40));
         p.rightMargin = dp(10);
-        p.bottomMargin = dp(8);
+        p.bottomMargin = dp(12);
         box.setLayoutParams(p);
         box.setOnClickListener(v -> { if (sports) showSportsPlayer(item); else showDetail(item); });
         box.setOnFocusChangeListener((v, focus) -> {
-            box.setBackground(shape(BG, focus ? WHITE : Color.TRANSPARENT));
-            box.setElevation(focus ? dp(6) : 0);
+            picture.setForeground(shape(Color.TRANSPARENT, focus ? WHITE : Color.TRANSPARENT));
+            box.animate().scaleX(focus ? 1.025f : 1).scaleY(focus ? 1.025f : 1).setDuration(220).start();
+            box.setElevation(focus ? dp(5) : 0);
             if (focus && onFocused != null) onFocused.run();
         });
         return box;
+    }
+
+    private LinearLayout gridRow() {
+        LinearLayout line = row(); line.setGravity(Gravity.TOP); line.setClipChildren(false); line.setClipToPadding(false);
+        line.setPadding(dp(4), dp(4), dp(4), dp(4)); return line;
     }
 
     private void searchScreen() {
@@ -556,13 +596,13 @@ public final class MainActivity extends Activity {
         query.setHint("Search movies and TV shows");
         query.setHintTextColor(MUTED);
         query.setTextColor(WHITE);
-        query.setTextSize(18);
+        query.setTextSize(16);
         query.setTypeface(REGULAR);
         query.setPadding(dp(16), 0, dp(16), 0);
-        query.setBackground(shape(PANEL, 0xff808080));
-        query.setOnFocusChangeListener((v, focused) -> query.setBackground(shape(PANEL, focused ? WHITE : 0xff808080)));
+        query.setBackground(shape(PANEL, AppStyle.BORDER));
+        query.setOnFocusChangeListener((v, focused) -> query.setBackground(shape(PANEL, focused ? WHITE : AppStyle.BORDER)));
         query.setInputType(InputType.TYPE_CLASS_TEXT);
-        search.addView(query, new LinearLayout.LayoutParams(0, dp(54), 1));
+        search.addView(query, new LinearLayout.LayoutParams(0, dp(44), 1));
         LinearLayout results = column();
         Runnable submit = () -> {
             String term = query.getText().toString().trim();
@@ -577,7 +617,7 @@ public final class MainActivity extends Activity {
             });
         };
         Button go = button("Search", submit);
-        LinearLayout.LayoutParams searchAction = new LinearLayout.LayoutParams(dp(130), dp(54));
+        LinearLayout.LayoutParams searchAction = new LinearLayout.LayoutParams(dp(110), dp(44));
         searchAction.leftMargin = dp(12);
         search.addView(go, searchAction);
         query.setOnEditorActionListener((v, actionId, event) -> { submit.run(); return true; });
@@ -657,8 +697,10 @@ public final class MainActivity extends Activity {
     }
 
     private void addCatalogFilters() {
+        TextView caption = text("FILTERS", 10, MUTED, true); caption.setLetterSpacing(.17f);
+        content.addView(caption); gap(content, 8);
         LinearLayout bar = row();
-        content.addView(bar, new LinearLayout.LayoutParams(-1, dp(58)));
+        content.addView(bar, new LinearLayout.LayoutParams(-1, dp(54)));
         for (int i = 0; i <= CatalogFilters.TITLES.length; i++) {
             final int field = i;
             Button control = button("", () -> {
@@ -670,7 +712,7 @@ public final class MainActivity extends Activity {
             });
             control.setSingleLine(false);
             control.setMaxLines(2);
-            control.setTextSize(14);
+            control.setTextSize(12);
             control.setPadding(dp(8), 0, dp(8), 0);
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, i == CatalogFilters.TITLES.length ? 0.7f : 1);
             if (i > 0) params.leftMargin = dp(8);
@@ -704,11 +746,7 @@ public final class MainActivity extends Activity {
             if (activeFilters == filters && !filterButtons.isEmpty()) focusTile(filterButtons.get(field));
         });
         dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(shape(PANEL, CONTROL));
-            dialog.getWindow().setLayout(Math.min(dp(460), getResources().getDisplayMetrics().widthPixels - dp(80)),
-                Math.min(dp(420), getResources().getDisplayMetrics().heightPixels - dp(48)));
-        }
+        AppStyle.dialog(dialog, 460, 420);
         dialog.getListView().requestFocus();
         dialog.getListView().setSelection(filters.selectedIndex(field));
     }
@@ -778,8 +816,8 @@ public final class MainActivity extends Activity {
 
     private void appendCollectionItem(FullCollection state, Item item) {
         if (state.tiles.size() % 5 == 0) {
-            LinearLayout line = row();
-            line.setGravity(Gravity.TOP);
+            LinearLayout line = gridRow();
+            state.grid.setClipChildren(false);
             state.grid.addView(line);
             focusRows.add(new ArrayList<>());
         }
@@ -832,12 +870,11 @@ public final class MainActivity extends Activity {
         root.addView(hero, 0, new FrameLayout.LayoutParams(-1, -1));
         api.image(hero, item.backdrop, false, 1280);
         View shade = new View(this);
-        shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-            new int[]{0xeb000000, 0x80000000, 0x10000000}));
+        shade.setBackground(AppStyle.leftShade());
         root.addView(shade, 1, new FrameLayout.LayoutParams(-1, -1));
         View fade = new View(this);
         fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0x00000000, Color.BLACK}));
+            new int[]{0x00070a11, BG}));
         root.addView(fade, 2, new FrameLayout.LayoutParams(-1, dp(220), Gravity.BOTTOM));
         Button back = button("Back to " + section, () -> openSection(section));
         content.addView(back, new LinearLayout.LayoutParams(dp(200), dp(40)));
@@ -846,8 +883,8 @@ public final class MainActivity extends Activity {
         preview.setMinimumHeight(dp(304));
         content.addView(preview, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout details = column();
-        details.setPadding(dp(24), dp(20), dp(20), dp(20));
-        int detailWidth = Math.min(560, (int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density) - 90);
+        details.setPadding(0, dp(20), dp(20), dp(20));
+        int detailWidth = Math.min(520, (int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density) - 140);
         preview.addView(details, new FrameLayout.LayoutParams(dp(detailWidth), -2, Gravity.BOTTOM | Gravity.LEFT));
         TextView name = text(item.title, 34, WHITE, true);
         name.setMaxLines(2);
@@ -867,13 +904,13 @@ public final class MainActivity extends Activity {
             }
             item.genres = TextUtils.join(", ", names);
         }
-        TextView meta = text(item.metadata(), 14, MUTED, false);
+        TextView meta = text(item.metadata(), 12, AppStyle.TEXT, false);
         meta.setTag("title-metadata");
         meta.setMaxLines(2);
         meta.setEllipsize(TextUtils.TruncateAt.END);
         details.addView(meta);
         gap(details, 10);
-        TextView synopsis = text(item.overview, 15, WHITE, false);
+        TextView synopsis = text(item.overview, 13, AppStyle.TEXT, false);
         synopsis.setMaxLines(3);
         synopsis.setEllipsize(TextUtils.TruncateAt.END);
         synopsis.setLineSpacing(dp(2), 1);
@@ -885,12 +922,12 @@ public final class MainActivity extends Activity {
         for (int i = 0; i < names.length; i++) {
             final int source = i;
             Button choice = button(names[i], () -> showPlayer(item, season, episode, source), i == 0);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(140), dp(44));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(124), dp(38));
             p.rightMargin = dp(12);
             sources.addView(choice, p);
             if (i == 0) choice.requestFocus();
         }
-        trailerPreview = new TrailerPreview(this, root, shade, fade, (View) content.getParent());
+        trailerPreview = new TrailerPreview(this, root, shade, fade, pageChrome);
         trailerPreview.start(api, item.kind, item.id);
         int request = generation;
         api.object("/api/tmdb/" + item.kind + "/" + item.id, (json, error) -> {
@@ -909,7 +946,7 @@ public final class MainActivity extends Activity {
     private void addSeasons(Item item, JSONArray seasons) {
         if (seasons == null) return;
         gap(content, 22);
-        content.addView(text("Episodes", 23, WHITE, true));
+        content.addView(text("Episodes", 20, WHITE, true));
         gap(content, 12);
         HorizontalScrollView scroll = new TvHorizontalScrollView(this);
         LinearLayout choices = row();
@@ -923,7 +960,7 @@ public final class MainActivity extends Activity {
             int number = o.optInt("season_number", -1);
             if (number < 1) continue;
             Button b = button("Season " + number, () -> loadEpisodes(item, number, episodes));
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(140), dp(42));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(124), dp(38));
             p.rightMargin = dp(10);
             choices.addView(b, p);
         }
@@ -1013,11 +1050,7 @@ public final class MainActivity extends Activity {
         }
         dialog.setView(panel, 0, 0, 0, 0);
         dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(shape(PANEL, 0xff414141));
-            int width = Math.min(dp(420), getResources().getDisplayMetrics().widthPixels - dp(80));
-            dialog.getWindow().setLayout(width, -2);
-        }
+        AppStyle.dialog(dialog, 420, -2);
         if (initial != null) initial.requestFocus();
     }
 
@@ -1058,6 +1091,7 @@ public final class MainActivity extends Activity {
         // Playback has one edge-to-edge surface. All actions belong to the
         // auto-hiding overlay; there is no separate windowed player screen.
         playerScreen = new FrameLayout(this);
+        playerScreen.setBackgroundColor(Color.BLACK);
         root.addView(playerScreen, new FrameLayout.LayoutParams(-1, -1));
         String[] names = sourceNames(item);
         player = new WebView(this);
@@ -1245,6 +1279,7 @@ public final class MainActivity extends Activity {
             if (index >= 0) {
                 lastFilterIndex = index;
                 if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    if (index == 0 && keyCode == KeyEvent.KEYCODE_DPAD_LEFT) return enterRail();
                     lastFilterIndex = Math.max(0, Math.min(filterButtons.size() - 1,
                         index + (keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1)));
                     return focusTile(filterButtons.get(lastFilterIndex));
@@ -1299,11 +1334,7 @@ public final class MainActivity extends Activity {
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
             if (columnIndex > 0) return focusTile(row.get(columnIndex - 1));
             if (section.equals("Home") && rowIndex < catalogRows.size()) return focusTile(catalogRows.get(rowIndex).headingView);
-            if (rowIndex > 0 && fullCollection != null) {
-                List<View> previous = focusRows.get(rowIndex - 1);
-                if (!previous.isEmpty()) return focusTile(previous.get(previous.size() - 1));
-            }
-            return true;
+            return enterRail();
         } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
             if (columnIndex + 1 < row.size()) return focusTile(row.get(columnIndex + 1));
             if (section.equals("Home") && rowIndex < catalogRows.size()) {
@@ -1358,6 +1389,24 @@ public final class MainActivity extends Activity {
         if (playerOpen && playerOverlay != null && playerOverlay.handleKey(event)) return true;
         boolean directional = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
             || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
+        if (!playerOpen && navigationRail != null && navigationRail.isAttachedToWindow()) {
+            if (code == KeyEvent.KEYCODE_MENU) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) showBrowseMenu();
+                return true;
+            }
+            if (directional && navigationRail.hasFocus()) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) navigationRail.navigate(code, this::returnFromRail);
+                return true;
+            }
+            if (code == KeyEvent.KEYCODE_DPAD_LEFT && event.getAction() == KeyEvent.ACTION_DOWN) {
+                View current = getCurrentFocus();
+                // Leave text-field caret movement alone. Catalog row boundaries are explicit below.
+                if (current != null && !(current instanceof EditText)) {
+                    View left = current.focusSearch(View.FOCUS_LEFT);
+                    if (left != null && navigationRail.buttons.contains(left)) return enterRail();
+                }
+            }
+        }
         if (event.getAction() == KeyEvent.ACTION_DOWN && directional) {
             if (!playerOpen && !detailOpen && moveCatalogFocus(code)) return true;
         }

@@ -371,16 +371,16 @@ public final class PlaybackControlsTest {
             main(() -> assertEquals(expected, readField(activity, "section")));
         }
     }
-    @Test public void testCatalogBackgroundIsPureBlack() {
+    @Test public void testCatalogUsesDiscoveryCanvasWithBlackSystemBars() {
         activity = getActivity();
         main(() -> {
             View root = (View) readField(activity, "root");
-            assertEquals(Color.BLACK, ((ColorDrawable) root.getBackground()).getColor());
+            assertEquals(AppStyle.BG, ((ColorDrawable) root.getBackground()).getColor());
             TypedValue color = new TypedValue();
             assertTrue(activity.getTheme().resolveAttribute(android.R.attr.colorBackground, color, true));
-            assertEquals(Color.BLACK, color.data);
+            assertEquals(AppStyle.BG, color.data);
             assertTrue(activity.getTheme().resolveAttribute(android.R.attr.windowBackground, color, true));
-            assertEquals(Color.BLACK, color.data);
+            assertEquals(AppStyle.BG, color.data);
             assertEquals(Color.BLACK, activity.getWindow().getNavigationBarColor());
             assertEquals(Color.BLACK, activity.getWindow().getStatusBarColor());
         });

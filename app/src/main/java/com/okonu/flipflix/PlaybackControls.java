@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -60,15 +59,15 @@ final class PlaybackControls extends LinearLayout {
         setOrientation(VERTICAL);
         setPadding(dp(28), dp(38), dp(28), dp(14));
         setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0x00000000, 0xc8000000, 0xf0000000}));
+            new int[]{0x00070a11, 0xc8070a11, 0xf0070a11}));
         LinearLayout progress = row();
         addView(progress, new LayoutParams(-1, dp(40)));
         timeline = new SeekBar(activity);
         timeline.setContentDescription("Playback position. Left or right seeks 10 seconds.");
         timeline.setMax(10000);
-        timeline.setProgressTintList(ColorStateList.valueOf(0xffe50914));
-        timeline.setProgressBackgroundTintList(ColorStateList.valueOf(0xff777777));
-        timeline.setThumbTintList(ColorStateList.valueOf(0xffe50914));
+        timeline.setProgressTintList(ColorStateList.valueOf(AppStyle.ACCENT));
+        timeline.setProgressBackgroundTintList(ColorStateList.valueOf(AppStyle.BORDER));
+        timeline.setThumbTintList(ColorStateList.valueOf(AppStyle.ACCENT));
         timeline.setFocusableInTouchMode(true);
         timeline.setPadding(dp(8), 0, dp(8), 0);
         timeline.setOnFocusChangeListener((v, focused) -> {
@@ -108,7 +107,7 @@ final class PlaybackControls extends LinearLayout {
         icon(actions, "Retry playback", "retry", retry);
         resize = icon(actions, "Fill screen (crop edges)", "fill", this::toggleResize);
         icon(actions, "Close player", "back", exit);
-        hint.setTextColor(0xffb3b3b3);
+        hint.setTextColor(AppStyle.MUTED);
         hint.setPadding(dp(8), dp(7), 0, 0);
         addView(hint, new LayoutParams(-1, dp(28)));
     }
@@ -118,10 +117,10 @@ final class PlaybackControls extends LinearLayout {
     private TextView label(String value, int size) {
         TextView v = new TextView(activity); v.setText(value); v.setTextColor(Color.WHITE);
         v.setTextSize(size); v.setGravity(Gravity.CENTER_VERTICAL);
-        v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v;
+        v.setTypeface(AppStyle.MEDIUM); return v;
     }
     private GradientDrawable shape(int fill, int border) {
-        GradientDrawable d = new GradientDrawable(); d.setColor(fill); d.setCornerRadius(dp(4)); d.setStroke(dp(2), border); return d;
+        return AppStyle.shape(activity, fill, border);
     }
     private ImageButton icon(LinearLayout row, String label, String glyph, Runnable action) {
         ImageButton b = new ImageButton(activity);
@@ -130,7 +129,8 @@ final class PlaybackControls extends LinearLayout {
         b.setImageDrawable(new ControlIcon(glyph, Color.WHITE));
         b.setBackground(shape(Color.TRANSPARENT, Color.TRANSPARENT));
         b.setOnFocusChangeListener((v, focused) -> {
-            b.setBackground(shape(focused ? 0x35ffffff : Color.TRANSPARENT, focused ? Color.WHITE : Color.TRANSPARENT));
+            b.setBackground(shape(focused ? Color.WHITE : Color.TRANSPARENT, Color.TRANSPARENT));
+            ((ControlIcon) b.getDrawable()).color(focused ? AppStyle.BG : Color.WHITE);
             if (focused) { lastButton = buttons.indexOf(b); if (hint != null) hint.setText(b.getContentDescription()); }
         });
         b.setOnClickListener(v -> { interact(); action.run(); render(); });
@@ -189,7 +189,7 @@ final class PlaybackControls extends LinearLayout {
     }
     private void setStateIcon(ImageButton button, String label, String glyph) {
         if (label.contentEquals(button.getContentDescription())) return;
-        button.setContentDescription(label); button.setImageDrawable(new ControlIcon(glyph, Color.WHITE));
+        button.setContentDescription(label); button.setImageDrawable(new ControlIcon(glyph, button.hasFocus() ? AppStyle.BG : Color.WHITE));
         if (button.hasFocus()) hint.setText(label);
     }
     private static String format(long millis) {
@@ -215,10 +215,7 @@ final class PlaybackControls extends LinearLayout {
         AlertDialog dialog = builder.create();
         dialog.setOnDismissListener(d -> resumeFromMenu());
         dialog.show();
-        if (dialog.getWindow() != null) {
-            dialog.getWindow().setBackgroundDrawable(shape(0xff181818, 0xff414141));
-            dialog.getWindow().setLayout(Math.min(dp(460), getResources().getDisplayMetrics().widthPixels - dp(80)), -2);
-        }
+        AppStyle.dialog(dialog, 460, -2);
     }
 
     boolean handleKey(KeyEvent event) {

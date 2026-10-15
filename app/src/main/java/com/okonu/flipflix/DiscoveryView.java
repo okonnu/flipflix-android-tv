@@ -1,11 +1,8 @@
 package com.okonu.flipflix;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Rect;
-import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -15,7 +12,6 @@ import android.view.TextureView;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -35,7 +31,7 @@ final class DiscoveryView extends FrameLayout {
         void more(DiscoveryRow row);
     }
     static final class Position { int row, card; }
-    private static final int BG = 0xff070a11, MUTED = 0xffa7afbd;
+    private static final int BG = AppStyle.BG, MUTED = AppStyle.MUTED;
     final List<DiscoveryRow> rows;
     final List<RowView> rowViews = new ArrayList<>();
     final AmbientPreview preview;
@@ -46,10 +42,11 @@ final class DiscoveryView extends FrameLayout {
     private final Actions actions;
     private final FrameLayout artwork;
     private final ImageView poster, incoming, logo;
-    private final LinearLayout hero, list, rail;
+    private final LinearLayout hero, list;
+    private final NavigationRail rail;
     private final TextView category, title, metadata, description, credit;
     private final Button watch, save;
-    private final List<ImageButton> railButtons = new ArrayList<>();
+    private final List<ImageButton> railButtons;
     private final Position position;
     private DiscoveryItem current;
     private int selectedRow, selectedCard, artworkGeneration;
@@ -68,7 +65,7 @@ final class DiscoveryView extends FrameLayout {
         TextureView video = new TextureView(activity); artwork.addView(video, new LayoutParams(-1, -1));
         preview = new AmbientPreview(activity, video);
         View leftShade = new View(activity);
-        leftShade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{BG, 0xe6070a11, 0x28070a11, 0x00070a11}));
+        leftShade.setBackground(AppStyle.leftShade());
         addView(leftShade, new LayoutParams(-1, -1));
         View bottomShade = new View(activity);
         bottomShade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00070a11, 0x15070a11, BG, BG}));
@@ -100,15 +97,8 @@ final class DiscoveryView extends FrameLayout {
         addView(scroll);
         list = column(); list.setClipChildren(false); list.setPadding(dp(8), dp(8), dp(20), dp(60));
         scroll.addView(list, new ScrollView.LayoutParams(-1, -2));
-        rail = column(); rail.setGravity(Gravity.CENTER); rail.setBackgroundColor(0xf2070a11); addView(rail);
-        addRail("profile", "Local profile", this::profile);
-        addRail("search", "Search", () -> actions.section("Search"));
-        addRail("browse", "Browse", () -> actions.section("Home"));
-        addRail("library", "Library", () -> actions.section("Library"));
-        TextView brand = text("F", 27, 0xffff3f4c, true); brand.setGravity(Gravity.CENTER);
-        LayoutParams brandP = new LayoutParams(dp(62), dp(52), Gravity.TOP | Gravity.LEFT); brandP.topMargin = dp(8); addView(brand, brandP);
-        TextView version = text("FLIPFLIX", 8, MUTED, true); version.setGravity(Gravity.CENTER); version.setLetterSpacing(.08f);
-        LayoutParams versionP = new LayoutParams(dp(62), dp(26), Gravity.BOTTOM | Gravity.LEFT); addView(version, versionP);
+        rail = new NavigationRail(activity, actions::section, () -> { inRail = true; inHero = inHeading = false; });
+        railButtons = rail.buttons; addView(rail);
         for (int i = 0; i < rows.size(); i++) { RowView r = new RowView(i); rowViews.add(r); list.addView(r.container); refreshRow(i); }
         if (rows.isEmpty()) {
             title.setText("Your library"); description.setText("Save a title with + Library, then find it here.");
@@ -120,44 +110,21 @@ final class DiscoveryView extends FrameLayout {
     private LinearLayout column() { LinearLayout l = new LinearLayout(activity); l.setOrientation(LinearLayout.VERTICAL); return l; }
     private TextView text(String value, int size, int color, boolean bold) {
         TextView t = new TextView(activity); t.setText(value); t.setTextSize(size); t.setTextColor(color);
-        t.setIncludeFontPadding(false); t.setTypeface(Typeface.create(bold ? "sans-serif-medium" : "sans-serif", Typeface.NORMAL)); return t;
+        t.setIncludeFontPadding(false); t.setTypeface(bold ? AppStyle.MEDIUM : AppStyle.REGULAR); return t;
     }
     private ImageView image() { ImageView v = new ImageView(activity); v.setScaleType(ImageView.ScaleType.CENTER_CROP); return v; }
     private GradientDrawable shape(int fill, int stroke) {
-        GradientDrawable d = new GradientDrawable(); d.setColor(fill); d.setCornerRadius(dp(5)); d.setStroke(dp(2), stroke); return d;
+        return AppStyle.shape(activity, fill, stroke);
     }
     private Button action(String label, Runnable run) {
         Button b = new Button(activity); b.setText(label); b.setAllCaps(false); b.setTextSize(12); b.setTextColor(Color.WHITE);
         b.setPadding(dp(10), 0, dp(10), 0); b.setMinHeight(0); b.setMinimumHeight(0); b.setStateListAnimator(null);
-        b.setFocusableInTouchMode(true); b.setBackground(shape(0x40485261, Color.TRANSPARENT));
+        b.setFocusableInTouchMode(true); AppStyle.button(b, false, false);
         b.setOnFocusChangeListener((v, focused) -> {
             if (focused) { inHero = true; inRail = inHeading = false; }
-            b.setBackground(shape(focused ? Color.WHITE : 0x40485261, Color.TRANSPARENT));
-            b.setTextColor(focused ? BG : Color.WHITE);
+            AppStyle.button(b, false, focused);
         });
         b.setOnClickListener(v -> run.run()); return b;
-    }
-    private void addRail(String icon, String name, Runnable run) {
-        ImageButton b = new ImageButton(activity); b.setImageDrawable(new ControlIcon(icon, MUTED)); b.setContentDescription(name);
-        b.setPadding(dp(14), dp(14), dp(14), dp(14)); b.setFocusableInTouchMode(true);
-        b.setBackground(shape(Color.TRANSPARENT, Color.TRANSPARENT)); b.setOnClickListener(v -> run.run());
-        b.setOnFocusChangeListener((v, focused) -> {
-            if (focused) { inRail = true; inHero = inHeading = false; }
-            b.setBackground(shape(focused ? 0x30485261 : Color.TRANSPARENT, focused ? 0xffa7afbd : Color.TRANSPARENT));
-            b.setImageDrawable(new ControlIcon(icon, focused ? Color.WHITE : MUTED));
-        });
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(46), dp(46)); p.bottomMargin = dp(9);
-        rail.addView(b, p); railButtons.add(b);
-    }
-    private void profile() {
-        SharedPreferences prefs = activity.getSharedPreferences("discovery", 0);
-        EditText name = new EditText(activity); name.setSingleLine(true); name.setText(prefs.getString("profile", "Guest"));
-        name.setSelectAllOnFocus(true);
-        new AlertDialog.Builder(activity).setTitle("Local profile").setMessage("A name for this device. No online account or sign-in is required.")
-            .setView(name).setPositiveButton("Save", (d, w) -> prefs.edit().putString("profile", name.getText().toString().trim()).apply())
-            .setNeutralButton("Media credits", (d, w) -> new AlertDialog.Builder(activity).setTitle("Open-film preview credits")
-                .setMessage("Sintel: (c) 2010 Blender Foundation / durian.blender.org\nBig Buck Bunny: (c) 2008 Blender Foundation / bigbuckbunny.org\n\nCC BY 3.0: creativecommons.org/licenses/by/3.0/\nTrailers and stills supplied by media.w3.org. Ambient excerpts are cropped, muted, and limited to 25 seconds. These are replacement sample assets, not Flipflix originals. Other catalog artwork comes from TMDB. No live program schedules are invented.")
-                .setPositiveButton("OK", null).show()).setNegativeButton("Cancel", null).show();
     }
     static List<DiscoveryItem> saved(Activity activity) {
         List<DiscoveryItem> result = new ArrayList<>();
@@ -315,7 +282,15 @@ final class DiscoveryView extends FrameLayout {
                 heading.setBackground(shape(focused ? 0x30485261 : Color.TRANSPARENT, focused ? Color.WHITE : Color.TRANSPARENT));
                 if (focused) { selectedRow = index; inHeading = true; inRail = inHero = false; vertical.moveTo(Math.max(0, container.getTop() - dp(14)), true); }
             });
-            container.addView(heading, new LinearLayout.LayoutParams(-2, dp(31)));
+            LinearLayout headingRow = new LinearLayout(activity); headingRow.setGravity(Gravity.CENTER_VERTICAL);
+            container.addView(headingRow, new LinearLayout.LayoutParams(-1, dp(31)));
+            headingRow.addView(heading, new LinearLayout.LayoutParams(-2, -1));
+            if (row.section.equals("Movies") || row.section.equals("TV Shows")) {
+                TextView hint = text("Browse & filter", 10, MUTED, false); hint.setPadding(dp(6), 0, 0, 0);
+                hint.setOnClickListener(v -> actions.section(row.section)); hint.setFocusable(false);
+                headingRow.addView(hint);
+                heading.setContentDescription(row.title + ", browse all and filter");
+            }
             carousel = new TvHorizontalScrollView(activity) {
                 @Override protected boolean revealFocus(View focused, boolean animate) {
                     if (!(focused instanceof Card)) return false;

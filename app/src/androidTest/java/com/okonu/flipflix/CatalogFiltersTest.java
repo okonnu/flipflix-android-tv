@@ -217,6 +217,69 @@ public final class CatalogFiltersTest {
         });
     }
 
+    @Test public void browseMenuOpensMovieAndTvFiltersWithoutHiddenHeadingShortcut() {
+        // The rail's Browse action offers direct destinations while preserving the page if canceled.
+        main(() -> ((NavigationRail) field(activity(), "navigationRail")).focusBrowse());
+        key(KeyEvent.KEYCODE_DPAD_CENTER); awaitDialogFocus("Movies - browse & filter");
+        key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("TV Shows - browse & filter");
+        key(KeyEvent.KEYCODE_DPAD_CENTER); awaitActivityWindow();
+        main(() -> {
+            assertEquals("TV Shows", field(activity(), "section"));
+            assertTrue(fake.last().path.startsWith("/api/tmdb/discover/tv?"));
+            assertEquals(6, buttons().size());
+            assertSame(buttons().get(0), activity().getCurrentFocus());
+            for (Button b : buttons()) assertTrue(b.isShown());
+        });
+        key(KeyEvent.KEYCODE_MENU); awaitDialogFocus("TV Shows - browse & filter");
+        key(KeyEvent.KEYCODE_DPAD_UP); awaitDialogFocus("Movies - browse & filter");
+        key(KeyEvent.KEYCODE_DPAD_CENTER); awaitActivityWindow();
+        main(() -> {
+            assertEquals("Movies", field(activity(), "section"));
+            assertTrue(fake.last().path.startsWith("/api/tmdb/discover/movie?"));
+            assertSame(buttons().get(0), activity().getCurrentFocus());
+        });
+        key(KeyEvent.KEYCODE_MENU); awaitDialogFocus("Movies - browse & filter");
+        key(KeyEvent.KEYCODE_BACK); awaitActivityWindow();
+        main(() -> assertSame(buttons().get(0), activity().getCurrentFocus()));
+    }
+
+    @Test public void railReturnsToSameFilterAndCardWithConsistentUnclippedArtwork() {
+        main(() -> reply(10)); instrumentation().waitForIdleSync();
+        key(KeyEvent.KEYCODE_DPAD_LEFT);
+        main(() -> assertTrue(((NavigationRail) field(activity(), "navigationRail")).hasFocus()));
+        key(KeyEvent.KEYCODE_DPAD_RIGHT);
+        main(() -> assertSame(buttons().get(0), activity().getCurrentFocus()));
+        key(KeyEvent.KEYCODE_DPAD_DOWN);
+        main(() -> assertSame(tiles().get(0), activity().getCurrentFocus()));
+        key(KeyEvent.KEYCODE_DPAD_LEFT); key(KeyEvent.KEYCODE_DPAD_RIGHT);
+        SystemClock.sleep(300);
+        main(() -> {
+            assertSame(tiles().get(0), activity().getCurrentFocus());
+            View tile = tiles().get(0), picture = tile.findViewWithTag("catalog-artwork"), label = tile.findViewWithTag("catalog-label");
+            assertTrue("Labels sit beneath 16:9 artwork", label.getTop() >= picture.getBottom());
+            assertEquals(16f / 9f, (float) picture.getWidth() / picture.getHeight(), .02f);
+            assertTrue("No label clipping", label.getBottom() <= tile.getHeight());
+            assertFalse(((android.view.ViewGroup) tile.getParent()).getClipChildren());
+            assertNotNull(((android.widget.FrameLayout) picture).getForeground());
+        });
+    }
+
+    @Test public void collectionSearchAndDetailsKeepSameRailAndButtonPalette() {
+        main(() -> {
+            assertNotNull(field(activity(), "navigationRail"));
+            Button filter = buttons().get(0);
+            assertTrue(filter.hasFocus()); assertEquals(AppStyle.BG, filter.getCurrentTextColor());
+            reply(1); tiles().get(0).performClick();
+            assertTrue(((NavigationRail) field(activity(), "navigationRail")).isAttachedToWindow());
+            assertTrue(((android.view.ViewGroup) field(activity(), "pageChrome")).isShown());
+            invoke("openSection", "Search");
+            NavigationRail rail = (NavigationRail) field(activity(), "navigationRail");
+            assertTrue(rail.isAttachedToWindow()); assertEquals(4, rail.buttons.size());
+            Button home = (Button) field(activity(), "topAction"); home.requestFocus();
+            assertEquals(AppStyle.BG, home.getCurrentTextColor());
+        });
+    }
+
     @Test public void emptyLoadingAndFailureStatesKeepFiltersReachable() {
         key(KeyEvent.KEYCODE_DPAD_DOWN);
         main(() -> assertSame(buttons().get(0), activity().getCurrentFocus()));
