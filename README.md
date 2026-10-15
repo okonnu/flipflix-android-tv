@@ -8,6 +8,8 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 - Horizontal catalog rows fetch more pages as the remote approaches the end; finite live sports wraps to the first event
 - Home rows display four complete artwork cards per horizontal page, including the last partial batch. Titles and metadata sit over the artwork; section headings remain clickable without arrow characters
 - Selectable row headings open full-page collection grids with a Load more control; Search remains a top action
+- Movies and TV Shows have native remote-friendly Genre, Year, Minimum rating, Country, and Sort by menus plus Reset filters. Combine filters across the full catalog, with Most popular, Highest rated, Newest first, or Oldest first sorting. Movie year means original release year; TV year means first aired. Each section remembers its own choices across details, playback, and app restarts; Home rows stay unfiltered
+- Left/Right moves between filter buttons, OK opens a selection list, Back cancels it, and Down enters results. Up from the first card row returns to the last-used filter. Loading, no matches, and retry states never trap remote focus. Changing filters resets pagination and ignores late responses from the previous query
 - Up from a Home card selects its section heading. Up/Down on headings selects other sections; Right enters the cards, and OK opens the selected section
 - Predictable D-pad navigation across poster rows and a high-contrast TV focus state
 - Native title details, TV seasons, and episode selection
@@ -55,6 +57,8 @@ This experimental release variant is non-debuggable but signed by the local Andr
 `SportsCompatibilityTest` checks strict URL scoping, early script ordering, suppression of only the known PDF error, and preservation of unrelated errors and iframe behavior using local deterministic fixtures.
 
 `PlayerNavigationTest` exercises the real Activity: fullscreen-only movie/TV/sports playback, single-Back return, source/menu/episode/retry navigation, native-video geometry and cleanup, provider custom fullscreen transitions, and rejection of late callbacks after closing playback.
+
+`CatalogFiltersTest` covers movie/series query parameters, saved choices, remote filter menus, focus with empty/loading/error states, filtered pagination, reset, and stale response rejection using a deterministic catalog fixture.
 
 ```sh
 ANDROID_HOME=/home/okonu/Android/Sdk ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest

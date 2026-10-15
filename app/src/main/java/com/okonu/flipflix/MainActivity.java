@@ -47,10 +47,16 @@ public final class MainActivity extends Activity {
     private static final int ACCENT = Color.rgb(229, 9, 20);
     private static final Typeface REGULAR = Typeface.create("sans-serif", Typeface.NORMAL);
     private static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
-    private final CatalogApi api = new CatalogApi();
+    private CatalogApi api = new CatalogApi();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<List<View>> focusRows = new ArrayList<>();
     private final List<CatalogRow> catalogRows = new ArrayList<>();
+    private final CatalogFilters movieFilters = new CatalogFilters("movie");
+    private final CatalogFilters tvFilters = new CatalogFilters("tv");
+    private final List<Button> filterButtons = new ArrayList<>();
+    private CatalogFilters activeFilters;
+    private TextView collectionStatus;
+    private int lastFilterIndex;
     private FullCollection fullCollection;
     private Button loadMoreButton;
     private FrameLayout root;
@@ -134,6 +140,8 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        movieFilters.restore(getSharedPreferences("catalog_filters", MODE_PRIVATE));
+        tvFilters.restore(getSharedPreferences("catalog_filters", MODE_PRIVATE));
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         root = new FrameLayout(this);
         root.setBackgroundColor(BG);
@@ -217,6 +225,10 @@ public final class MainActivity extends Activity {
         playerOverlay = null;
         focusRows.clear();
         catalogRows.clear();
+        filterButtons.clear();
+        activeFilters = null;
+        collectionStatus = null;
+        lastFilterIndex = 0;
         fullCollection = null;
         loadMoreButton = null;
         topAction = null;
@@ -473,14 +485,21 @@ public final class MainActivity extends Activity {
     }
 
     private void showCollection(String name) {
+        if (name.equals("Movies") || name.equals("TV Shows")) {
+            activeFilters = name.equals("Movies") ? movieFilters : tvFilters;
+            addCatalogFilters();
+            collectionStatus = text("Loading...", 14, MUTED, false);
+            collectionStatus.setPadding(0, dp(8), 0, dp(8));
+            content.addView(collectionStatus, new LinearLayout.LayoutParams(-1, dp(36)));
+        }
         gap(content, 4);
         LinearLayout grid = column();
         content.addView(grid);
         String path;
         String kind;
         if (name.equals("Trending")) { path = "/api/tmdb/trending/all/day?page="; kind = "movie"; }
-        else if (name.equals("Movies")) { path = moviePath(); kind = "movie"; }
-        else if (name.equals("TV Shows")) { path = tvPath(); kind = "tv"; }
+        else if (name.equals("Movies")) { path = movieFilters.pathPrefix(); kind = "movie"; }
+        else if (name.equals("TV Shows")) { path = tvFilters.pathPrefix(); kind = "tv"; }
         else if (name.equals("Anime")) {
             path = "/api/tmdb/discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc&include_adult=false&page=";
             kind = "tv";
@@ -492,17 +511,90 @@ public final class MainActivity extends Activity {
             loadSportsCollection(state);
             return;
         }
-        Button more = button("Load more", () -> loadCollectionPage(state));
+        Button more = button("Load more", () -> { if (fullCollection != null) loadCollectionPage(fullCollection); });
         loadMoreButton = more;
         content.addView(more, new LinearLayout.LayoutParams(dp(180), dp(52)));
         more.setEnabled(false);
         more.setText("Loading...");
+        if (!filterButtons.isEmpty()) filterButtons.get(0).requestFocus();
         loadCollectionPage(state);
+    }
+
+    private void addCatalogFilters() {
+        LinearLayout bar = row();
+        content.addView(bar, new LinearLayout.LayoutParams(-1, dp(58)));
+        for (int i = 0; i <= CatalogFilters.TITLES.length; i++) {
+            final int field = i;
+            Button control = button("", () -> {
+                lastFilterIndex = field;
+                if (field == CatalogFilters.TITLES.length) {
+                    activeFilters.reset();
+                    applyCatalogFilters();
+                } else showFilterOptions(field);
+            });
+            control.setSingleLine(false);
+            control.setMaxLines(2);
+            control.setTextSize(14);
+            control.setPadding(dp(8), 0, dp(8), 0);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -1, i == CatalogFilters.TITLES.length ? 0.7f : 1);
+            if (i > 0) params.leftMargin = dp(8);
+            bar.addView(control, params);
+            filterButtons.add(control);
+        }
+        updateFilterLabels();
+    }
+
+    private void updateFilterLabels() {
+        for (int i = 0; i < CatalogFilters.TITLES.length; i++) {
+            Button button = filterButtons.get(i);
+            button.setText((i == CatalogFilters.RATING ? "Rating" : CatalogFilters.TITLES[i]) + "\n" + activeFilters.label(i));
+            button.setContentDescription(CatalogFilters.TITLES[i] + ": " + activeFilters.label(i));
+        }
+        filterButtons.get(CatalogFilters.TITLES.length).setText("Reset\nfilters");
+    }
+
+    private void showFilterOptions(int field) {
+        CatalogFilters filters = activeFilters;
+        List<CatalogFilters.Option> choices = filters.options(field);
+        String[] labels = new String[choices.size()];
+        for (int i = 0; i < choices.size(); i++) labels[i] = choices.get(i).label;
+        AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle(CatalogFilters.TITLES[field] + (field == CatalogFilters.YEAR && section.equals("TV Shows") ? " (first aired)" : ""))
+            .setSingleChoiceItems(labels, filters.selectedIndex(field), (d, index) -> {
+                if (activeFilters == filters && filters.select(field, choices.get(index).value)) applyCatalogFilters();
+                d.dismiss();
+            }).setNegativeButton("Cancel", null).create();
+        dialog.setOnDismissListener(d -> {
+            if (activeFilters == filters && !filterButtons.isEmpty()) focusTile(filterButtons.get(field));
+        });
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(shape(PANEL, CONTROL));
+            dialog.getWindow().setLayout(Math.min(dp(460), getResources().getDisplayMetrics().widthPixels - dp(80)),
+                Math.min(dp(420), getResources().getDisplayMetrics().heightPixels - dp(48)));
+        }
+        dialog.getListView().requestFocus();
+        dialog.getListView().setSelection(filters.selectedIndex(field));
+    }
+
+    private void applyCatalogFilters() {
+        if (activeFilters == null || fullCollection == null) return;
+        activeFilters.save(getSharedPreferences("catalog_filters", MODE_PRIVATE));
+        updateFilterLabels();
+        // A new state owns page one and rejects any response from the old query.
+        FullCollection previous = fullCollection;
+        previous.grid.removeAllViews();
+        focusRows.clear();
+        fullCollection = new FullCollection(activeFilters.pathPrefix(), previous.kind, previous.grid);
+        loadMoreButton.setVisibility(View.VISIBLE);
+        focusTile(filterButtons.get(lastFilterIndex));
+        loadCollectionPage(fullCollection);
     }
 
     private void loadCollectionPage(FullCollection state) {
         if (state.loading || state.complete || state.pathPrefix == null) return;
         state.loading = true;
+        if (collectionStatus != null) collectionStatus.setText(state.tiles.isEmpty() ? "Loading..." : "Loading more...");
         boolean fromButton = getCurrentFocus() == loadMoreButton;
         if (loadMoreButton != null) { loadMoreButton.setEnabled(false); loadMoreButton.setText("Loading..."); }
         int page = state.nextPage;
@@ -511,10 +603,15 @@ public final class MainActivity extends Activity {
             if (request != generation || fullCollection != state) return;
             state.loading = false;
             if (error != null || json == null) {
-                if (state.tiles.isEmpty()) state.grid.addView(text("Catalog unavailable", 16, MUTED, false));
+                if (collectionStatus != null) collectionStatus.setText("Catalog unavailable. Select Retry loading or change filters.");
+                else if (state.tiles.isEmpty()) {
+                    state.grid.removeAllViews();
+                    state.grid.addView(text("Catalog unavailable", 16, MUTED, false));
+                }
                 if (loadMoreButton != null) { loadMoreButton.setEnabled(true); loadMoreButton.setText("Retry loading"); }
                 return;
             }
+            if (state.tiles.isEmpty()) state.grid.removeAllViews();
             JSONArray entries = json.optJSONArray("results");
             if (entries == null || entries.length() == 0) state.complete = true;
             int start = state.tiles.size();
@@ -531,8 +628,14 @@ public final class MainActivity extends Activity {
                 loadMoreButton.setEnabled(!state.complete);
                 loadMoreButton.setText("Load more");
             }
-            if (start < state.tiles.size() && (start == 0 || fromButton)) {
+            if (collectionStatus != null) collectionStatus.setText(state.tiles.isEmpty()
+                ? "No matches. Change a filter or select Reset filters."
+                : state.tiles.size() + " shown" + (json.has("total_results") ? " of " + json.optInt("total_results") : ""));
+            else if (state.tiles.isEmpty()) state.grid.addView(text("No results", 17, MUTED, false));
+            if (start < state.tiles.size() && ((start == 0 && activeFilters == null) || fromButton)) {
                 focusTile(state.tiles.get(start));
+            } else if (fromButton && !state.tiles.isEmpty()) {
+                focusTile(state.tiles.get(state.tiles.size() - 1));
             }
         });
     }
@@ -955,7 +1058,35 @@ public final class MainActivity extends Activity {
 
     private boolean moveCatalogFocus(int keyCode) {
         View focused = getCurrentFocus();
-        if (focused == null || focusRows.isEmpty()) return false;
+        if (focused == null) return false;
+        // Filters remain reachable even while loading or when there are no results.
+        if (!filterButtons.isEmpty()) {
+            if (focused == topAction && keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                return focusTile(filterButtons.get(lastFilterIndex));
+            }
+            int index = filterButtons.indexOf(focused);
+            if (index >= 0) {
+                lastFilterIndex = index;
+                if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    lastFilterIndex = Math.max(0, Math.min(filterButtons.size() - 1,
+                        index + (keyCode == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1)));
+                    return focusTile(filterButtons.get(lastFilterIndex));
+                }
+                if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return focusTile(topAction);
+                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                    if (!focusRows.isEmpty() && !focusRows.get(0).isEmpty()) {
+                        List<View> row = focusRows.get(0);
+                        return focusTile(row.get(Math.min(index, row.size() - 1)));
+                    }
+                    if (loadMoreButton != null && loadMoreButton.isShown() && loadMoreButton.isEnabled()) return focusTile(loadMoreButton);
+                    return true;
+                }
+            }
+            if (focused == loadMoreButton && focusRows.isEmpty() && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                return focusTile(filterButtons.get(lastFilterIndex));
+            }
+        }
+        if (focusRows.isEmpty()) return false;
         if (focused == topAction && keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
             if (section.equals("Home") && !catalogRows.isEmpty()) return focusTile(catalogRows.get(0).headingView);
             if (!focusRows.get(0).isEmpty()) return focusTile(focusRows.get(0).get(0));
@@ -1018,8 +1149,9 @@ public final class MainActivity extends Activity {
             }
             if (direction < 0) {
                 if (section.equals("Home") && !catalogRows.isEmpty()) return focusTile(catalogRows.get(0).headingView);
+                if (!filterButtons.isEmpty()) return focusTile(filterButtons.get(lastFilterIndex));
                 if (topAction != null) return focusTile(topAction);
-            } else if (loadMoreButton != null && loadMoreButton.getVisibility() == View.VISIBLE) {
+            } else if (loadMoreButton != null && loadMoreButton.getVisibility() == View.VISIBLE && loadMoreButton.isEnabled()) {
                 return focusTile(loadMoreButton);
             }
             return true;

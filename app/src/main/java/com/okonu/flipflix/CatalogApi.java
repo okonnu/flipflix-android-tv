@@ -17,7 +17,7 @@ import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-final class CatalogApi {
+class CatalogApi {
     interface Result { void done(JSONObject json, Exception error); }
     interface ArrayResult { void done(JSONArray json, Exception error); }
     interface StreamResult { void done(String value, JSONArray captions, Exception error); }

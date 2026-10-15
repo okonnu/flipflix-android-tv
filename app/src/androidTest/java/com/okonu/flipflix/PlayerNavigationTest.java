@@ -104,6 +104,15 @@ public final class PlayerNavigationTest {
         return null;
     }
     private void select(String description) {
+        // Dialog dismissal can finish before WindowManager restores input focus.
+        // Do not send OK to the closing dialog instead of the player underneath.
+        AtomicBoolean windowReady = new AtomicBoolean();
+        long deadline = SystemClock.uptimeMillis() + 5000;
+        while (!windowReady.get() && SystemClock.uptimeMillis() < deadline) {
+            main(() -> windowReady.set(activity().hasWindowFocus()));
+            if (!windowReady.get()) SystemClock.sleep(50);
+        }
+        assertTrue("Player window has input focus before selection", windowReady.get());
         main(() -> {
             PlaybackControls controls = (PlaybackControls) field(activity(), "playerOverlay");
             controls.show(true);
