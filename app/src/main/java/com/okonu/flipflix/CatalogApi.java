@@ -20,7 +20,7 @@ import java.util.concurrent.Executors;
 final class CatalogApi {
     interface Result { void done(JSONObject json, Exception error); }
     interface ArrayResult { void done(JSONArray json, Exception error); }
-    interface StringResult { void done(String value, Exception error); }
+    interface StreamResult { void done(String value, JSONArray captions, Exception error); }
     private final ExecutorService network = Executors.newFixedThreadPool(4);
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final LruCache<String, Bitmap> images = new LruCache<String, Bitmap>(64) {
@@ -51,9 +51,10 @@ final class CatalogApi {
         });
     }
 
-    void riftStream(String embedUrl, StringResult result) {
+    void riftStream(String embedUrl, StreamResult result) {
         network.execute(() -> {
             String stream = null;
+            JSONArray captions = new JSONArray();
             Exception failure = null;
             try {
                 String html = read(embedUrl);
@@ -62,6 +63,13 @@ final class CatalogApi {
                 int end = start < 0 ? -1 : html.indexOf(";</script>", start);
                 if (end < 0) throw new IllegalStateException("Rift stream metadata unavailable");
                 JSONObject meta = new JSONObject(html.substring(start + marker.length(), end));
+                String subtitleMarker = "var subtitleTracks = ";
+                int subStart = html.indexOf(subtitleMarker);
+                int subEnd = subStart < 0 ? -1 : html.indexOf(";</script>", subStart);
+                if (subEnd > subStart) {
+                    try { captions = new JSONArray(html.substring(subStart + subtitleMarker.length(), subEnd)); }
+                    catch (Exception ignored) { /* Captions are optional; do not fail video playback. */ }
+                }
                 JSONArray options = meta.optJSONArray("orionStreams");
                 if (options != null) {
                     for (int i = 0; i < options.length(); i++) {
@@ -77,8 +85,9 @@ final class CatalogApi {
                 if (stream == null) throw new IllegalStateException("No direct Rift stream");
             } catch (Exception e) { failure = e; }
             String resolved = stream;
+            JSONArray subtitleTracks = captions;
             Exception error = failure;
-            ui.post(() -> result.done(resolved, error));
+            ui.post(() -> result.done(resolved, subtitleTracks, error));
         });
     }
 

@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Color;
 import android.graphics.Rect;
-import android.net.Uri;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
@@ -30,14 +29,14 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.VideoView;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashMap;
 
 public final class MainActivity extends Activity {
     private static final int BG = Color.rgb(20, 20, 20);
@@ -52,38 +51,24 @@ public final class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<List<View>> focusRows = new ArrayList<>();
     private final List<CatalogRow> catalogRows = new ArrayList<>();
-    private final List<Button> overlayButtons = new ArrayList<>();
     private FullCollection fullCollection;
     private Button loadMoreButton;
     private FrameLayout root;
     private LinearLayout content;
     private WebView player;
-    private VideoView nativePlayer;
+    private NativePlayback nativePlayer;
+    private EmbeddedPlayback embeddedPlayer;
     private TextView playerStatus;
     private LinearLayout playerScreen;
-    private LinearLayout playerOverlay;
+    private PlaybackControls playerOverlay;
     private View playerBar;
     private View playerBackButton;
     private View episodeControls;
     private Button barSourceButton;
-    private Button overlaySourceButton;
     private View topAction;
     private View customVideoView;
     private WebChromeClient.CustomViewCallback customVideoCallback;
     private boolean playerFullscreen;
-    private final Runnable hidePlayerOverlay = new Runnable() {
-        @Override public void run() {
-            if (!playerFullscreen || playerOverlay == null) return;
-            if (overlayButtons.contains(getCurrentFocus())) {
-                ui.postDelayed(this, 8000);
-                return;
-            }
-            playerOverlay.setVisibility(View.GONE);
-            if (nativePlayer != null) nativePlayer.requestFocus();
-            else if (customVideoView != null) customVideoView.requestFocus();
-            else if (player != null) player.requestFocus();
-        }
-    };
     private int currentSourceIndex;
     private int sourceRequest;
     private Item selected;
@@ -229,13 +214,12 @@ public final class MainActivity extends Activity {
     }
 
     private void shell(String title) {
-        ui.removeCallbacks(hidePlayerOverlay);
+        if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
         playerFullscreen = false;
         sourceRequest++;
-        if (nativePlayer != null) { nativePlayer.stopPlayback(); nativePlayer = null; }
+        releaseNativePlayer();
         playerOverlay = null;
-        overlayButtons.clear();
         focusRows.clear();
         catalogRows.clear();
         fullCollection = null;
@@ -243,6 +227,7 @@ public final class MainActivity extends Activity {
         topAction = null;
         getWindow().getDecorView().setSystemUiVisibility(0);
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
+        embeddedPlayer = null;
         root.removeAllViews();
         ScrollView scroller = new ScrollView(this);
         scroller.setFillViewport(true);
@@ -284,7 +269,7 @@ public final class MainActivity extends Activity {
     private String tvPath() { return "/api/tmdb/discover/tv?sort_by=popularity.desc&include_adult=false&vote_count.gte=80&include_video=false&page="; }
 
     private CatalogRow createRow(String heading, String pathPrefix, String kind) {
-        TextView title = text(heading + "  >", 20, WHITE, true);
+        TextView title = text(heading, 20, WHITE, true);
         title.setFocusableInTouchMode(true);
         title.setClickable(true);
         title.setOnClickListener(v -> openSection(heading));
@@ -295,13 +280,12 @@ public final class MainActivity extends Activity {
         title.setPadding(dp(8), 0, dp(12), 0);
         content.addView(title, new LinearLayout.LayoutParams(-2, dp(36)));
         gap(content, 2);
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
+        HorizontalScrollView scroll = new TvCarousel(this);
         LinearLayout cards = row();
         cards.setPadding(dp(8), dp(6), dp(8), dp(6));
         cards.setClipChildren(false);
         scroll.addView(cards);
-        content.addView(scroll);
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
         gap(content, 16);
         CatalogRow state = new CatalogRow(pathPrefix, kind, cards);
         state.headingView = title;
@@ -378,8 +362,9 @@ public final class MainActivity extends Activity {
     }
 
     private View card(Item item, boolean sports, Runnable onFocused) {
-        int width = section.equals("Home") ? 200 : 162;
-        LinearLayout box = column();
+        int width = (getResources().getDisplayMetrics().widthPixels - dp(72) - dp(40)) / 5;
+        if (section.equals("Home")) width = (getResources().getDisplayMetrics().widthPixels - dp(88) - dp(30)) / 4;
+        FrameLayout box = new FrameLayout(this);
         box.setFocusableInTouchMode(true);
         box.setClickable(true);
         box.setPadding(dp(3), dp(3), dp(3), dp(3));
@@ -388,19 +373,27 @@ public final class MainActivity extends Activity {
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         image.setBackground(shape(PANEL, Color.TRANSPARENT));
         image.setClipToOutline(true);
-        box.addView(image, new LinearLayout.LayoutParams(-1, dp((width - 6) * 9f / 16f)));
+        box.addView(image, new FrameLayout.LayoutParams(-1, -1));
         String artwork = !sports && item.backdrop != null && !item.backdrop.isEmpty() ? item.backdrop : item.poster;
         api.image(image, artwork, sports);
+        View shade = new View(this);
+        shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{0x00000000, 0xc0000000, 0xf0000000}));
+        box.addView(shade, new FrameLayout.LayoutParams(-1, dp(76), Gravity.BOTTOM));
+        LinearLayout copy = column();
+        copy.setPadding(dp(8), 0, dp(8), dp(7));
+        box.addView(copy, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
         TextView label = text(item.title, 14, WHITE, true);
-        label.setSingleLine(true);
+        label.setMaxLines(2);
         label.setEllipsize(TextUtils.TruncateAt.END);
-        label.setPadding(dp(6), dp(5), dp(6), 0);
-        box.addView(label, new LinearLayout.LayoutParams(-1, dp(27)));
+        label.setShadowLayer(dp(2), 0, dp(1), Color.BLACK);
+        copy.addView(label, new LinearLayout.LayoutParams(-1, -2));
         TextView info = text(item.year + (item.rating.isEmpty() ? "" : "  |  " + item.rating), 12, MUTED, false);
         info.setSingleLine(true);
-        info.setPadding(dp(6), 0, dp(6), dp(3));
-        box.addView(info, new LinearLayout.LayoutParams(-1, dp(21)));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(width), -2);
+        info.setPadding(0, dp(3), 0, 0);
+        copy.addView(info, new LinearLayout.LayoutParams(-1, -2));
+        box.setContentDescription(item.title + ". " + info.getText());
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(width, Math.round((width - dp(6)) * 9f / 16f) + dp(6));
         p.rightMargin = dp(10);
         p.bottomMargin = dp(8);
         box.setLayoutParams(p);
@@ -594,23 +587,24 @@ public final class MainActivity extends Activity {
         playerOpen = false;
         generation++;
         shell("Flipflix");
+        // Artwork belongs to the full window, not the inset, scrolling preview card.
+        ImageView hero = new ImageView(this);
+        hero.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        root.addView(hero, 0, new FrameLayout.LayoutParams(-1, -1));
+        api.image(hero, item.backdrop, false, 1280);
+        View shade = new View(this);
+        shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+            new int[]{0xeb141414, 0x80141414, 0x10141414}));
+        root.addView(shade, 1, new FrameLayout.LayoutParams(-1, -1));
+        View fade = new View(this);
+        fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+            new int[]{0x00141414, 0xd9141414}));
+        root.addView(fade, 2, new FrameLayout.LayoutParams(-1, dp(220), Gravity.BOTTOM));
         Button back = button("Back to " + section, () -> openSection(section));
         content.addView(back, new LinearLayout.LayoutParams(dp(200), dp(40)));
         gap(content, 12);
         FrameLayout preview = new FrameLayout(this);
-        preview.setBackground(shape(PANEL, Color.TRANSPARENT));
-        preview.setClipToOutline(true);
         content.addView(preview, new LinearLayout.LayoutParams(-1, dp(304)));
-        ImageView hero = new ImageView(this);
-        hero.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        preview.addView(hero, new FrameLayout.LayoutParams(-1, -1));
-        api.image(hero, item.backdrop, false, 1280);
-        View shade = new View(this);
-        shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xf2141414, 0xbf141414, 0x10141414}));
-        preview.addView(shade, new FrameLayout.LayoutParams(-1, -1));
-        View fade = new View(this);
-        fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00141414, 0xff141414}));
-        preview.addView(fade, new FrameLayout.LayoutParams(-1, dp(90), Gravity.BOTTOM));
         LinearLayout details = column();
         details.setPadding(dp(24), dp(20), dp(20), dp(20));
         int detailWidth = Math.min(560, (int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density) - 90);
@@ -732,8 +726,10 @@ public final class MainActivity extends Activity {
     }
 
     private void showSourceChooser(Item item, int s, int e, boolean playing) {
+        if (playing && playerOverlay != null) playerOverlay.suspendForMenu();
         String[] names = sourceNames(item);
         AlertDialog dialog = new AlertDialog.Builder(this).create();
+        dialog.setOnDismissListener(d -> { if (playing && playerOverlay != null) playerOverlay.resumeFromMenu(); });
         LinearLayout panel = column();
         panel.setPadding(dp(24), dp(24), dp(24), dp(24));
         panel.addView(text("Choose a source", 24, WHITE, true));
@@ -788,7 +784,8 @@ public final class MainActivity extends Activity {
         generation++;
         clearCustomVideoView();
         sourceRequest++;
-        if (nativePlayer != null) { nativePlayer.stopPlayback(); nativePlayer = null; }
+        if (playerOverlay != null) { playerOverlay.deactivate(); playerOverlay = null; }
+        releaseNativePlayer();
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -817,6 +814,7 @@ public final class MainActivity extends Activity {
         player.getSettings().setMediaPlaybackRequiresUserGesture(false);
         player.getSettings().setSupportMultipleWindows(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(player, true);
+        embeddedPlayer = new EmbeddedPlayback(player);
         player.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
             @Override public void onShowCustomView(View view, CustomViewCallback callback) {
@@ -831,6 +829,9 @@ public final class MainActivity extends Activity {
             @Override public void onHideCustomView() { clearCustomVideoView(); }
         });
         player.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                if (view == player && embeddedPlayer != null) embeddedPlayer.pageFinished();
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
                 String host = request.getUrl().getHost();
@@ -852,7 +853,6 @@ public final class MainActivity extends Activity {
         } else episodeControls = null;
         buildPlayerOverlay(item);
         enterPlayerFullscreen();
-        if (player.getVisibility() == View.VISIBLE) player.requestFocus();
     }
 
     private void enterPlayerFullscreen() {
@@ -862,48 +862,28 @@ public final class MainActivity extends Activity {
         if (playerScreen != null) playerScreen.setPadding(0, 0, 0, 0);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        revealPlayerOverlay(true);
+        if (playerOverlay != null) playerOverlay.activate();
     }
 
     private void buildPlayerOverlay(Item item) {
-        overlayButtons.clear();
-        playerOverlay = column();
-        playerOverlay.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00141414, 0xf0141414, 0xff141414}));
-        playerOverlay.setPadding(dp(30), dp(32), dp(30), dp(24));
-        FrameLayout.LayoutParams placement = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        root.addView(playerOverlay, placement);
-        String subtitle = item.title + (item.kind.equals("tv") ? "  |  Season " + season + " Episode " + episode : "");
-        playerOverlay.addView(text(subtitle, 20, WHITE, true));
-        gap(playerOverlay, 16);
-        LinearLayout actions = row();
-        playerOverlay.addView(actions, new LinearLayout.LayoutParams(-1, dp(52)));
-        if (item.kind.equals("tv")) {
-            addOverlayButton(actions, "Previous", () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex), false);
-        }
-        overlaySourceButton = addOverlayButton(actions, "Source: " + sourceNames(item)[currentSourceIndex], () -> choosePlayerSource(item), false);
-        if (item.kind.equals("tv")) {
-            addOverlayButton(actions, "Next episode", () -> showPlayer(item, season, episode + 1, currentSourceIndex), true);
-        }
-        addOverlayButton(actions, "Retry", () -> loadSource(item, currentSourceIndex, season, episode), false);
-        addOverlayButton(actions, "Exit fullscreen", this::exitPlayerFullscreen, false);
+        String title = item.title + (item.kind.equals("tv") ? "  |  S" + season + " E" + episode : "");
+        playerOverlay = new PlaybackControls(this, () -> nativePlayer != null ? nativePlayer : embeddedPlayer,
+            this::focusVideo, title,
+            item.kind.equals("tv") ? () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex) : null,
+            item.kind.equals("tv") ? () -> showPlayer(item, season, episode + 1, currentSourceIndex) : null,
+            () -> choosePlayerSource(item), () -> loadSource(item, currentSourceIndex, season, episode), this::exitPlayerFullscreen);
+        playerOverlay.sourceName(sourceNames(item)[currentSourceIndex]);
+        root.addView(playerOverlay, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
     }
 
-    private Button addOverlayButton(LinearLayout actions, String label, Runnable action, boolean primary) {
-        Button b = button(label, action, primary);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(48), 1);
-        p.rightMargin = dp(12);
-        actions.addView(b, p);
-        overlayButtons.add(b);
-        return b;
+    private void focusVideo() {
+        if (nativePlayer != null) nativePlayer.view.requestFocus();
+        else if (customVideoView != null) customVideoView.requestFocus();
+        else if (player != null) player.requestFocus();
     }
 
     private void revealPlayerOverlay(boolean focus) {
-        if (!playerFullscreen || playerOverlay == null) return;
-        ui.removeCallbacks(hidePlayerOverlay);
-        playerOverlay.setVisibility(View.VISIBLE);
-        playerOverlay.bringToFront();
-        if (focus && !overlayButtons.isEmpty()) overlayButtons.get(0).requestFocus();
-        ui.postDelayed(hidePlayerOverlay, 8000);
+        if (playerFullscreen && playerOverlay != null) playerOverlay.show(focus);
     }
 
     private void choosePlayerSource(Item item) {
@@ -916,53 +896,46 @@ public final class MainActivity extends Activity {
         int request = ++sourceRequest;
         String label = "Source: " + sourceNames(item)[source];
         if (barSourceButton != null) barSourceButton.setText(label);
-        if (overlaySourceButton != null) overlaySourceButton.setText(label);
-        if (nativePlayer != null) {
-            nativePlayer.stopPlayback();
-            playerScreen.removeView(nativePlayer);
-            nativePlayer = null;
-        }
-        if (player != null) { player.stopLoading(); player.setVisibility(View.GONE); }
+        if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source]);
+        releaseNativePlayer();
+        if (embeddedPlayer != null) embeddedPlayer.reset();
+        if (player != null) { player.stopLoading(); player.loadUrl("about:blank"); player.setVisibility(View.GONE); }
         if (playerStatus != null) {
             playerStatus.setText("Preparing " + sourceNames(item)[source] + "...");
             playerStatus.setVisibility(View.VISIBLE);
         }
         if (source == 1 && !item.kind.equals("sport")) {
             String embed = sourceUrl(item, source, s, e);
-            api.riftStream(embed, (stream, error) -> {
+            api.riftStream(embed, (stream, captions, error) -> {
                 if (request != sourceRequest || !playerOpen) return;
                 if (error != null || stream == null) { loadEmbed(item, source, s, e); return; }
-                playNativeRift(item, source, s, e, stream, embed, request);
+                playNativeRift(item, source, s, e, stream, embed, captions, request);
             });
         } else loadEmbed(item, source, s, e);
     }
 
-    private void playNativeRift(Item item, int source, int s, int e, String stream, String referer, int request) {
-        VideoView video = new VideoView(this);
+    @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
+    private void playNativeRift(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
+        NativePlayback video = new NativePlayback(this, stream, referer, captions);
         nativePlayer = video;
-        video.setBackgroundColor(Color.BLACK);
-        video.setFocusableInTouchMode(true);
-        playerScreen.addView(video, 1, new LinearLayout.LayoutParams(-1, 0, 1));
+        playerScreen.addView(video.view, 1, new LinearLayout.LayoutParams(-1, 0, 1));
         if (playerStatus != null) playerStatus.setVisibility(View.GONE);
-        HashMap<String, String> headers = new HashMap<>();
-        headers.put("Referer", referer);
-        video.setOnPreparedListener(media -> {
-            if (request != sourceRequest) return;
-            video.setBackgroundColor(Color.TRANSPARENT);
-            video.start();
-            revealPlayerOverlay(false);
-        });
-        video.setOnErrorListener((media, what, extra) -> {
-            if (request == sourceRequest) {
-                video.stopPlayback();
-                playerScreen.removeView(video);
-                if (nativePlayer == video) nativePlayer = null;
-                loadEmbed(item, source, s, e);
+        video.player.addListener(new Player.Listener() {
+            @Override public void onPlayerError(PlaybackException error) {
+                if (request == sourceRequest && nativePlayer == video) {
+                    releaseNativePlayer();
+                    loadEmbed(item, source, s, e);
+                }
             }
-            return true;
         });
-        video.setVideoURI(Uri.parse(stream), headers);
-        video.requestFocus();
+        video.start();
+    }
+
+    private void releaseNativePlayer() {
+        if (nativePlayer == null) return;
+        if (playerScreen != null) playerScreen.removeView(nativePlayer.view);
+        nativePlayer.release();
+        nativePlayer = null;
     }
 
     private void clearCustomVideoView() {
@@ -977,8 +950,7 @@ public final class MainActivity extends Activity {
     }
 
     private void exitPlayerFullscreen() {
-        ui.removeCallbacks(hidePlayerOverlay);
-        if (playerOverlay != null) playerOverlay.setVisibility(View.GONE);
+        if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
         playerFullscreen = false;
         getWindow().getDecorView().setSystemUiVisibility(0);
@@ -997,7 +969,9 @@ public final class MainActivity extends Activity {
         String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'></head>" +
             "<body style='margin:0;background:#000;overflow:hidden'><iframe title='Video' src='" + url +
             "' allow='autoplay;fullscreen;picture-in-picture' allowfullscreen style='border:0;width:100vw;height:100vh'></iframe></body></html>";
-        player.loadDataWithBaseURL("https://pantyflix.com/", html, "text/html", "UTF-8", null);
+        if (embeddedPlayer != null && embeddedPlayer.documentStart) {
+            player.loadDataWithBaseURL("https://pantyflix.com/", html, "text/html", "UTF-8", null);
+        } else player.loadUrl(url);
         revealPlayerOverlay(false);
     }
 
@@ -1016,9 +990,12 @@ public final class MainActivity extends Activity {
         }
         for (int r = 0; r < catalogRows.size(); r++) {
             if (focused != catalogRows.get(r).headingView) continue;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 List<View> tiles = catalogRows.get(r).tiles;
                 return tiles.isEmpty() || focusTile(tiles.get(0));
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                return r + 1 >= catalogRows.size() || focusTile(catalogRows.get(r + 1).headingView);
             }
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
                 return focusTile(r == 0 ? topAction : catalogRows.get(r - 1).headingView);
@@ -1053,6 +1030,9 @@ public final class MainActivity extends Activity {
             }
             return true;
         } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP && section.equals("Home") && rowIndex < catalogRows.size()) {
+                return focusTile(catalogRows.get(rowIndex).headingView);
+            }
             int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? -1 : 1;
             for (int r = rowIndex + direction; r >= 0 && r < focusRows.size(); r += direction) {
                 List<View> targetRow = focusRows.get(r);
@@ -1072,42 +1052,25 @@ public final class MainActivity extends Activity {
     private boolean focusTile(View target) {
         if (!target.requestFocus()) return false;
         target.requestRectangleOnScreen(new Rect(0, 0, target.getWidth(), target.getHeight()), false);
-        return true;
-    }
-
-    private boolean movePlayerFocus(int keyCode) {
-        if (overlayButtons.isEmpty()) return false;
-        if (playerOverlay.getVisibility() != View.VISIBLE) {
-            revealPlayerOverlay(true);
-            return true;
+        if (section.equals("Home")) {
+            for (CatalogRow row : catalogRows) {
+                if (row.headingView == target || row.tiles.contains(target)) {
+                    View scroll = (View) row.cards.getParent();
+                    content.requestRectangleOnScreen(new Rect(0, row.headingView.getTop(), content.getWidth(), scroll.getBottom()), true);
+                    break;
+                }
+            }
         }
-        View focused = getCurrentFocus();
-        int index = overlayButtons.indexOf(focused);
-        if (index < 0) index = 0;
-        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) index = Math.max(0, index - 1);
-        else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) index = Math.min(overlayButtons.size() - 1, index + 1);
-        else if (keyCode == KeyEvent.KEYCODE_DPAD_UP) index = 0;
-        else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) index = overlayButtons.size() - 1;
-        else return false;
-        revealPlayerOverlay(false);
-        overlayButtons.get(index).requestFocus();
         return true;
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (playerOpen && playerOverlay != null && playerOverlay.handleKey(event)) return true;
         int code = event.getKeyCode();
         boolean directional = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
             || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
         if (event.getAction() == KeyEvent.ACTION_DOWN && directional) {
-            if (playerOpen && playerFullscreen && movePlayerFocus(code)) return true;
             if (!playerOpen && !detailOpen && moveCatalogFocus(code)) return true;
-        }
-        if (event.getAction() == KeyEvent.ACTION_DOWN && nativePlayer != null
-            && (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || code == KeyEvent.KEYCODE_MEDIA_PLAY || code == KeyEvent.KEYCODE_MEDIA_PAUSE)) {
-            if (code == KeyEvent.KEYCODE_MEDIA_PAUSE || (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && nativePlayer.isPlaying())) nativePlayer.pause();
-            else nativePlayer.start();
-            revealPlayerOverlay(false);
-            return true;
         }
         return super.dispatchKeyEvent(event);
     }
@@ -1130,9 +1093,9 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        ui.removeCallbacks(hidePlayerOverlay);
+        if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
-        if (nativePlayer != null) nativePlayer.stopPlayback();
+        releaseNativePlayer();
         if (player != null) { player.stopLoading(); player.destroy(); }
         api.close();
         super.onDestroy();

@@ -7,8 +7,9 @@ android {
         applicationId "com.okonu.flipflix"
         minSdk 22
         targetSdk 33
-        versionCode 6
-        versionName "0.1.5"
+        versionCode 7
+        versionName "0.1.6"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -20,4 +21,15 @@ android {
             minifyEnabled false
         }
     }
+}
+
+dependencies {
+    // Keep Android 5.1 / Fire OS 5 support (newer releases raise the minimum SDK).
+    implementation "androidx.media3:media3-exoplayer:1.5.1"
+    implementation "androidx.media3:media3-exoplayer-hls:1.5.1"
+    implementation "androidx.media3:media3-ui:1.5.1"
+    implementation "androidx.webkit:webkit:1.12.1"
+    androidTestImplementation "androidx.test:runner:1.6.2"
+    androidTestImplementation "androidx.test:rules:1.6.1"
+    androidTestImplementation "androidx.test.ext:junit:1.2.1"
 }
