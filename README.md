@@ -25,4 +25,4 @@ ANDROID_HOME=/home/okonu/Android/Sdk ./gradlew assembleRelease
 
 APK: `app/build/outputs/apk/release/app-release.apk`
 
-This experimental release variant is non-debuggable but signed by the local Android debug key. Keep that key for installable updates; a production app should use a dedicated release key. GitHub releases use the asset name `Flipflix.apk`, allowing a stable `/releases/latest/download/Flipflix.apk` download URL.
+This experimental release variant is non-debuggable but signed by the local Android debug key. Keep that key for installable updates; a production app should use a dedicated release key. GitHub releases use the asset name `app-release.apk`, allowing a stable `/releases/latest/download/app-release.apk` download URL.
