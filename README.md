@@ -19,7 +19,11 @@ The app reads public catalog responses from `pantyflix.com` and poster images fr
 
 This is an educational prototype, not an official Pantyflix client. Metadata, artwork, branding, and streams must be used under their respective permissions and terms before any broader distribution.
 
-## Build
+## Visual styling
+
+The existing native components use the community [Netflix Design System 2024 reference](https://www.figma.com/design/mknKOvsPMV2oLlYXGZwUO9/?node-id=202-19090): #141414 backgrounds, #181818 surfaces, #E50914 accents, white primary playback actions, gray secondary actions, 4dp corners, compact landscape catalog tiles, gradient title previews, and thumbnail episode rows. Android system sans-serif fonts substitute for the reference's Netflix Sans. TV focus uses a visible white outline, adapting the reference's mouse-hover states for remote navigation. Flipflix keeps its own name and existing feature set.
+
+## Build instructions
 
 The shared SDK is `/home/okonu/Android/Sdk`. No SDK copy is stored in this project.
 

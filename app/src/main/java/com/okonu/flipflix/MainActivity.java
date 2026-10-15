@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -40,10 +41,13 @@ import java.util.HashMap;
 
 public final class MainActivity extends Activity {
     private static final int BG = Color.rgb(20, 20, 20);
-    private static final int PANEL = Color.rgb(42, 42, 42);
-    private static final int WHITE = Color.rgb(245, 245, 241);
+    private static final int PANEL = Color.rgb(24, 24, 24);
+    private static final int CONTROL = Color.rgb(65, 65, 65);
+    private static final int WHITE = Color.WHITE;
     private static final int MUTED = Color.rgb(179, 179, 179);
     private static final int ACCENT = Color.rgb(229, 9, 20);
+    private static final Typeface REGULAR = Typeface.create("sans-serif", Typeface.NORMAL);
+    private static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
     private final CatalogApi api = new CatalogApi();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<List<View>> focusRows = new ArrayList<>();
@@ -160,7 +164,7 @@ public final class MainActivity extends Activity {
     private GradientDrawable shape(int color, int border) {
         GradientDrawable d = new GradientDrawable();
         d.setColor(color);
-        d.setCornerRadius(dp(6));
+        d.setCornerRadius(dp(4));
         d.setStroke(dp(2), border);
         return d;
     }
@@ -170,7 +174,8 @@ public final class MainActivity extends Activity {
         t.setTextSize(size);
         t.setTextColor(color);
         t.setGravity(Gravity.CENTER_VERTICAL);
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        t.setIncludeFontPadding(false);
+        t.setTypeface(bold ? MEDIUM : REGULAR);
         return t;
     }
     private LinearLayout column() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); return l; }
@@ -182,20 +187,43 @@ public final class MainActivity extends Activity {
     private Button button(String label, Runnable action, boolean primary) {
         Button b = new Button(this);
         b.setText(label);
-        b.setTextColor(WHITE);
+        b.setTextColor(primary ? BG : WHITE);
         b.setTextSize(16);
         b.setAllCaps(false);
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        b.setTypeface(MEDIUM);
+        b.setSingleLine(true);
+        b.setEllipsize(TextUtils.TruncateAt.END);
+        b.setMinWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumWidth(0);
+        b.setMinimumHeight(0);
+        b.setIncludeFontPadding(false);
+        b.setStateListAnimator(null);
         b.setPadding(dp(14), 0, dp(14), 0);
         b.setFocusableInTouchMode(true);
-        b.setBackground(shape(primary ? ACCENT : PANEL, Color.TRANSPARENT));
+        b.setBackground(shape(primary ? WHITE : CONTROL, Color.TRANSPARENT));
+        String glyph = null;
+        if (label.equals("Bolt") || label.equals("Rift") || label.equals("Fast") || label.equals("Stream 1")) glyph = "play";
+        else if (label.equals("Search")) glyph = "search";
+        else if (label.equals("Home")) glyph = "home";
+        else if (label.startsWith("Back")) glyph = "back";
+        else if (label.startsWith("Previous")) glyph = "previous";
+        else if (label.startsWith("Next")) glyph = "next";
+        else if (label.startsWith("Source:")) glyph = "source";
+        else if (label.equals("Retry")) glyph = "retry";
+        else if (label.toLowerCase(java.util.Locale.US).contains("fullscreen")) glyph = "fullscreen";
+        final ControlIcon icon = glyph == null ? null : new ControlIcon(glyph, primary ? BG : WHITE);
+        if (icon != null) {
+            icon.setBounds(0, 0, dp(20), dp(20));
+            b.setCompoundDrawables(icon, null, null, null);
+            b.setCompoundDrawablePadding(dp(8));
+        }
         b.setOnClickListener(v -> action.run());
         b.setOnFocusChangeListener((v, focused) -> {
-            b.setBackground(shape(focused ? WHITE : (primary ? ACCENT : PANEL), Color.TRANSPARENT));
-            b.setTextColor(focused ? BG : WHITE);
-            b.setScaleX(focused ? 1.06f : 1f);
-            b.setScaleY(focused ? 1.06f : 1f);
-            b.setElevation(focused ? dp(10) : 0);
+            b.setBackground(shape(primary ? (focused ? 0xffe6e6e6 : WHITE) : (focused ? 0xff545454 : CONTROL), focused ? WHITE : Color.TRANSPARENT));
+            b.setTextColor(primary ? BG : WHITE);
+            if (icon != null) icon.color(primary ? BG : WHITE);
+            b.setElevation(focused ? dp(4) : 0);
         });
         return b;
     }
@@ -221,16 +249,18 @@ public final class MainActivity extends Activity {
         scroller.setVerticalScrollBarEnabled(false);
         root.addView(scroller, new FrameLayout.LayoutParams(-1, -1));
         content = column();
-        content.setPadding(dp(36), dp(20), dp(36), dp(34));
+        content.setPadding(dp(36), dp(16), dp(36), dp(34));
         scroller.addView(content);
         LinearLayout header = row();
-        content.addView(header, new LinearLayout.LayoutParams(-1, dp(58)));
-        TextView brand = text(title, 31, WHITE, true);
+        content.addView(header, new LinearLayout.LayoutParams(-1, dp(52)));
+        boolean brandTitle = title.equals("Flipflix");
+        TextView brand = text(brandTitle ? "FLIPFLIX" : title, brandTitle ? 30 : 26, brandTitle ? ACCENT : WHITE, true);
+        if (brandTitle) { brand.setTypeface(Typeface.create("sans-serif-condensed", Typeface.BOLD)); brand.setLetterSpacing(0.025f); }
         header.addView(brand, new LinearLayout.LayoutParams(0, -1, 1));
         Button action = button(section.equals("Home") ? "Search" : "Home", () -> openSection(section.equals("Home") ? "Search" : "Home"));
         topAction = action;
-        header.addView(action, new LinearLayout.LayoutParams(dp(132), dp(48)));
-        gap(content, 14);
+        header.addView(action, new LinearLayout.LayoutParams(dp(120), dp(40)));
+        gap(content, 16);
     }
 
     private void openSection(String name) {
@@ -242,8 +272,6 @@ public final class MainActivity extends Activity {
         shell(name.equals("Home") ? "Flipflix" : name);
         if (name.equals("Search")) searchScreen();
         else if (name.equals("Home")) {
-            content.addView(text("Browse with the remote. Move down for more collections.", 15, MUTED, false));
-            gap(content, 18);
             loadRow("Trending", "/api/tmdb/trending/all/day?page=", "movie");
             loadRow("Movies", moviePath(), "movie");
             loadRow("TV Shows", tvPath(), "tv");
@@ -256,23 +284,25 @@ public final class MainActivity extends Activity {
     private String tvPath() { return "/api/tmdb/discover/tv?sort_by=popularity.desc&include_adult=false&vote_count.gte=80&include_video=false&page="; }
 
     private CatalogRow createRow(String heading, String pathPrefix, String kind) {
-        TextView title = text(heading + "  >", 22, WHITE, true);
+        TextView title = text(heading + "  >", 20, WHITE, true);
         title.setFocusableInTouchMode(true);
         title.setClickable(true);
         title.setOnClickListener(v -> openSection(heading));
         title.setOnFocusChangeListener((v, focused) -> {
-            title.setTextColor(focused ? ACCENT : WHITE);
+            title.setTextColor(focused ? WHITE : 0xffe6e6e6);
+            title.setBackground(shape(focused ? CONTROL : Color.TRANSPARENT, focused ? WHITE : Color.TRANSPARENT));
         });
-        content.addView(title, new LinearLayout.LayoutParams(-1, dp(38)));
-        gap(content, 6);
+        title.setPadding(dp(8), 0, dp(12), 0);
+        content.addView(title, new LinearLayout.LayoutParams(-2, dp(36)));
+        gap(content, 2);
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout cards = row();
-        cards.setPadding(dp(12), dp(12), dp(12), dp(12));
+        cards.setPadding(dp(8), dp(6), dp(8), dp(6));
         cards.setClipChildren(false);
         scroll.addView(cards);
         content.addView(scroll);
-        gap(content, 22);
+        gap(content, 16);
         CatalogRow state = new CatalogRow(pathPrefix, kind, cards);
         state.headingView = title;
         catalogRows.add(state);
@@ -348,32 +378,36 @@ public final class MainActivity extends Activity {
     }
 
     private View card(Item item, boolean sports, Runnable onFocused) {
+        int width = section.equals("Home") ? 200 : 162;
         LinearLayout box = column();
         box.setFocusableInTouchMode(true);
         box.setClickable(true);
-        box.setBackground(shape(PANEL, Color.TRANSPARENT));
+        box.setPadding(dp(3), dp(3), dp(3), dp(3));
+        box.setBackground(shape(BG, Color.TRANSPARENT));
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setBackgroundColor(Color.rgb(32, 39, 49));
-        box.addView(image, new LinearLayout.LayoutParams(-1, dp(180)));
-        api.image(image, item.poster, sports);
+        image.setBackground(shape(PANEL, Color.TRANSPARENT));
+        image.setClipToOutline(true);
+        box.addView(image, new LinearLayout.LayoutParams(-1, dp((width - 6) * 9f / 16f)));
+        String artwork = !sports && item.backdrop != null && !item.backdrop.isEmpty() ? item.backdrop : item.poster;
+        api.image(image, artwork, sports);
         TextView label = text(item.title, 14, WHITE, true);
-        label.setMaxLines(2);
-        label.setPadding(dp(8), dp(5), dp(8), 0);
-        box.addView(label, new LinearLayout.LayoutParams(-1, dp(44)));
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setPadding(dp(6), dp(5), dp(6), 0);
+        box.addView(label, new LinearLayout.LayoutParams(-1, dp(27)));
         TextView info = text(item.year + (item.rating.isEmpty() ? "" : "  |  " + item.rating), 12, MUTED, false);
-        info.setPadding(dp(8), 0, dp(8), dp(5));
-        box.addView(info, new LinearLayout.LayoutParams(-1, dp(24)));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(148), dp(250));
-        p.rightMargin = dp(15);
-        p.bottomMargin = dp(18);
+        info.setSingleLine(true);
+        info.setPadding(dp(6), 0, dp(6), dp(3));
+        box.addView(info, new LinearLayout.LayoutParams(-1, dp(21)));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(width), -2);
+        p.rightMargin = dp(10);
+        p.bottomMargin = dp(8);
         box.setLayoutParams(p);
         box.setOnClickListener(v -> { if (sports) showSportsPlayer(item); else showDetail(item); });
         box.setOnFocusChangeListener((v, focus) -> {
-            box.setBackground(shape(PANEL, focus ? WHITE : Color.TRANSPARENT));
-            box.setScaleX(focus ? 1.06f : 1f);
-            box.setScaleY(focus ? 1.06f : 1f);
-            box.setElevation(focus ? dp(12) : 0);
+            box.setBackground(shape(focus ? PANEL : BG, focus ? WHITE : Color.TRANSPARENT));
+            box.setElevation(focus ? dp(6) : 0);
             if (focus && onFocused != null) onFocused.run();
         });
         return box;
@@ -387,6 +421,11 @@ public final class MainActivity extends Activity {
         query.setHint("Search movies and TV shows");
         query.setHintTextColor(MUTED);
         query.setTextColor(WHITE);
+        query.setTextSize(18);
+        query.setTypeface(REGULAR);
+        query.setPadding(dp(16), 0, dp(16), 0);
+        query.setBackground(shape(PANEL, 0xff808080));
+        query.setOnFocusChangeListener((v, focused) -> query.setBackground(shape(PANEL, focused ? WHITE : 0xff808080)));
         query.setInputType(InputType.TYPE_CLASS_TEXT);
         search.addView(query, new LinearLayout.LayoutParams(0, dp(54), 1));
         LinearLayout results = column();
@@ -403,7 +442,9 @@ public final class MainActivity extends Activity {
             });
         };
         Button go = button("Search", submit);
-        search.addView(go, new LinearLayout.LayoutParams(dp(130), dp(54)));
+        LinearLayout.LayoutParams searchAction = new LinearLayout.LayoutParams(dp(130), dp(54));
+        searchAction.leftMargin = dp(12);
+        search.addView(go, searchAction);
         query.setOnEditorActionListener((v, actionId, event) -> { submit.run(); return true; });
         gap(content, 22);
         content.addView(results);
@@ -442,8 +483,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showCollection(String name) {
-        content.addView(text("Browse " + name + ". Back returns to all collections.", 15, MUTED, false));
-        gap(content, 18);
+        gap(content, 4);
         LinearLayout grid = column();
         content.addView(grid);
         String path;
@@ -553,30 +593,49 @@ public final class MainActivity extends Activity {
         detailOpen = true;
         playerOpen = false;
         generation++;
-        shell(item.title);
+        shell("Flipflix");
         Button back = button("Back to " + section, () -> openSection(section));
-        content.addView(back, new LinearLayout.LayoutParams(dp(200), dp(52)));
-        gap(content, 15);
+        content.addView(back, new LinearLayout.LayoutParams(dp(200), dp(40)));
+        gap(content, 12);
+        FrameLayout preview = new FrameLayout(this);
+        preview.setBackground(shape(PANEL, Color.TRANSPARENT));
+        preview.setClipToOutline(true);
+        content.addView(preview, new LinearLayout.LayoutParams(-1, dp(304)));
         ImageView hero = new ImageView(this);
         hero.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        content.addView(hero, new LinearLayout.LayoutParams(-1, dp(220)));
-        api.image(hero, item.backdrop, false);
-        gap(content, 18);
-        TextView meta = text(item.year + "  |  " + (item.kind.equals("tv") ? "TV show" : "Movie") + (item.rating.isEmpty() ? "" : "  |  " + item.rating), 17, ACCENT, true);
-        content.addView(meta);
-        gap(content, 10);
-        TextView synopsis = text(item.overview, 16, WHITE, false);
-        content.addView(synopsis);
-        gap(content, 18);
-        content.addView(text("Choose a source", 20, WHITE, true));
-        gap(content, 10);
+        preview.addView(hero, new FrameLayout.LayoutParams(-1, -1));
+        api.image(hero, item.backdrop, false, 1280);
+        View shade = new View(this);
+        shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{0xf2141414, 0xbf141414, 0x10141414}));
+        preview.addView(shade, new FrameLayout.LayoutParams(-1, -1));
+        View fade = new View(this);
+        fade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00141414, 0xff141414}));
+        preview.addView(fade, new FrameLayout.LayoutParams(-1, dp(90), Gravity.BOTTOM));
+        LinearLayout details = column();
+        details.setPadding(dp(24), dp(20), dp(20), dp(20));
+        int detailWidth = Math.min(560, (int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density) - 90);
+        preview.addView(details, new FrameLayout.LayoutParams(dp(detailWidth), -2, Gravity.BOTTOM | Gravity.LEFT));
+        TextView name = text(item.title, 34, WHITE, true);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        details.addView(name);
+        gap(details, 10);
+        TextView meta = text(item.year + "  |  " + (item.kind.equals("tv") ? "TV show" : "Movie") + (item.rating.isEmpty() ? "" : "  |  " + item.rating), 14, MUTED, false);
+        details.addView(meta);
+        gap(details, 10);
+        TextView synopsis = text(item.overview, 15, WHITE, false);
+        synopsis.setMaxLines(3);
+        synopsis.setEllipsize(TextUtils.TruncateAt.END);
+        synopsis.setLineSpacing(dp(2), 1);
+        details.addView(synopsis);
+        gap(details, 16);
         LinearLayout sources = row();
-        content.addView(sources);
+        details.addView(sources);
         String[] names = sourceNames(item);
         for (int i = 0; i < names.length; i++) {
             final int source = i;
             Button choice = button(names[i], () -> showPlayer(item, season, episode, source), i == 0);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(150), dp(55));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(140), dp(44));
             p.rightMargin = dp(12);
             sources.addView(choice, p);
             if (i == 0) choice.requestFocus();
@@ -592,9 +651,9 @@ public final class MainActivity extends Activity {
 
     private void addSeasons(Item item, JSONArray seasons) {
         if (seasons == null) return;
-        gap(content, 25);
-        content.addView(text("Seasons and episodes", 23, WHITE, true));
-        gap(content, 10);
+        gap(content, 22);
+        content.addView(text("Episodes", 23, WHITE, true));
+        gap(content, 12);
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         LinearLayout choices = row();
         scroll.addView(choices);
@@ -607,7 +666,7 @@ public final class MainActivity extends Activity {
             int number = o.optInt("season_number", -1);
             if (number < 1) continue;
             Button b = button("Season " + number, () -> loadEpisodes(item, number, episodes));
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(140), dp(52));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(140), dp(42));
             p.rightMargin = dp(10);
             choices.addView(b, p);
         }
@@ -629,10 +688,36 @@ public final class MainActivity extends Activity {
                 JSONObject e = entries.optJSONObject(i);
                 if (e == null) continue;
                 int ep = e.optInt("episode_number", i + 1);
-                Button b = button(ep + ". " + e.optString("name", "Episode") + "    " + e.optString("air_date", ""), () -> chooseSource(item, number, ep));
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54));
-                p.bottomMargin = dp(8);
-                target.addView(b, p);
+                LinearLayout entry = row();
+                entry.setPadding(dp(12), dp(10), dp(16), dp(10));
+                entry.setFocusableInTouchMode(true);
+                entry.setClickable(true);
+                entry.setBackground(shape(PANEL, Color.TRANSPARENT));
+                entry.setOnClickListener(v -> chooseSource(item, number, ep));
+                entry.setOnFocusChangeListener((v, focused) -> entry.setBackground(shape(focused ? CONTROL : PANEL, focused ? WHITE : Color.TRANSPARENT)));
+                TextView ordinal = text(String.valueOf(ep), 20, MUTED, false);
+                entry.addView(ordinal, new LinearLayout.LayoutParams(dp(40), -1));
+                ImageView still = new ImageView(this);
+                still.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                still.setBackground(shape(BG, Color.TRANSPARENT));
+                still.setClipToOutline(true);
+                entry.addView(still, new LinearLayout.LayoutParams(dp(124), dp(70)));
+                api.image(still, e.optString("still_path", ""), false);
+                LinearLayout copy = column();
+                copy.setPadding(dp(18), 0, 0, 0);
+                entry.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+                TextView episodeName = text(e.optString("name", "Episode"), 16, WHITE, true);
+                episodeName.setSingleLine(true);
+                episodeName.setEllipsize(TextUtils.TruncateAt.END);
+                copy.addView(episodeName);
+                gap(copy, 6);
+                TextView overview = text(e.optString("overview", e.optString("air_date", "")), 13, MUTED, false);
+                overview.setMaxLines(2);
+                overview.setEllipsize(TextUtils.TruncateAt.END);
+                copy.addView(overview);
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(94));
+                p.topMargin = dp(8);
+                target.addView(entry, p);
             }
         });
     }
@@ -643,9 +728,38 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseSource(Item item, int s, int e) {
+        showSourceChooser(item, s, e, false);
+    }
+
+    private void showSourceChooser(Item item, int s, int e, boolean playing) {
         String[] names = sourceNames(item);
-        new AlertDialog.Builder(this).setTitle("Choose a source")
-            .setItems(names, (dialog, which) -> showPlayer(item, s, e, which)).show();
+        AlertDialog dialog = new AlertDialog.Builder(this).create();
+        LinearLayout panel = column();
+        panel.setPadding(dp(24), dp(24), dp(24), dp(24));
+        panel.addView(text("Choose a source", 24, WHITE, true));
+        gap(panel, 20);
+        int active = playing ? currentSourceIndex : 0;
+        Button initial = null;
+        for (int i = 0; i < names.length; i++) {
+            final int source = i;
+            Button choice = button(names[i], () -> {
+                dialog.dismiss();
+                if (playing) loadSource(item, source, s, e);
+                else showPlayer(item, s, e, source);
+            }, i == active);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(46));
+            p.topMargin = dp(10);
+            panel.addView(choice, p);
+            if (i == active) initial = choice;
+        }
+        dialog.setView(panel, 0, 0, 0, 0);
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(shape(PANEL, 0xff414141));
+            int width = Math.min(dp(420), getResources().getDisplayMetrics().widthPixels - dp(80));
+            dialog.getWindow().setLayout(width, -2);
+        }
+        if (initial != null) initial.requestFocus();
     }
 
     private String[] sourceNames(Item item) {
@@ -754,13 +868,13 @@ public final class MainActivity extends Activity {
     private void buildPlayerOverlay(Item item) {
         overlayButtons.clear();
         playerOverlay = column();
-        playerOverlay.setBackgroundColor(Color.argb(230, 12, 12, 12));
-        playerOverlay.setPadding(dp(26), dp(12), dp(26), dp(18));
+        playerOverlay.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x00141414, 0xf0141414, 0xff141414}));
+        playerOverlay.setPadding(dp(30), dp(32), dp(30), dp(24));
         FrameLayout.LayoutParams placement = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         root.addView(playerOverlay, placement);
         String subtitle = item.title + (item.kind.equals("tv") ? "  |  Season " + season + " Episode " + episode : "");
-        playerOverlay.addView(text(subtitle, 19, WHITE, true));
-        gap(playerOverlay, 10);
+        playerOverlay.addView(text(subtitle, 20, WHITE, true));
+        gap(playerOverlay, 16);
         LinearLayout actions = row();
         playerOverlay.addView(actions, new LinearLayout.LayoutParams(-1, dp(52)));
         if (item.kind.equals("tv")) {
@@ -793,9 +907,7 @@ public final class MainActivity extends Activity {
     }
 
     private void choosePlayerSource(Item item) {
-        String[] names = sourceNames(item);
-        new AlertDialog.Builder(this).setTitle("Choose a source")
-            .setItems(names, (dialog, which) -> loadSource(item, which, season, episode)).show();
+        showSourceChooser(item, season, episode, true);
     }
 
     private void loadSource(Item item, int source, int s, int e) {

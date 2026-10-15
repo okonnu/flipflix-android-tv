@@ -83,8 +83,12 @@ final class CatalogApi {
     }
 
     void image(ImageView view, String path, boolean sports) {
+        image(view, path, sports, 500);
+    }
+
+    void image(ImageView view, String path, boolean sports, int width) {
         if (path == null || path.isEmpty()) return;
-        String url = sports ? "https://streamed.pk" + path : "https://image.tmdb.org/t/p/w500" + path;
+        String url = sports ? "https://streamed.pk" + path : "https://image.tmdb.org/t/p/w" + width + path;
         view.setTag(url);
         Bitmap cached = images.get(url);
         if (cached != null) { view.setImageBitmap(cached); return; }
