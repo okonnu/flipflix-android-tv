@@ -59,22 +59,18 @@ public final class MainActivity extends Activity {
     private NativePlayback nativePlayer;
     private EmbeddedPlayback embeddedPlayer;
     private TextView playerStatus;
-    private LinearLayout playerScreen;
+    private FrameLayout playerScreen;
     private PlaybackControls playerOverlay;
-    private View playerBar;
-    private View playerBackButton;
-    private View episodeControls;
-    private Button barSourceButton;
     private View topAction;
     private View customVideoView;
     private WebChromeClient.CustomViewCallback customVideoCallback;
-    private boolean playerFullscreen;
     private int currentSourceIndex;
     private int sourceRequest;
     private Item selected;
     private String section = "Home";
     private boolean detailOpen;
     private boolean playerOpen;
+    private boolean playerBackKeyDown;
     private int generation;
     private int season = 1;
     private int episode = 1;
@@ -216,7 +212,6 @@ public final class MainActivity extends Activity {
     private void shell(String title) {
         if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
-        playerFullscreen = false;
         sourceRequest++;
         releaseNativePlayer();
         playerOverlay = null;
@@ -228,6 +223,8 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(0);
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         embeddedPlayer = null;
+        playerScreen = null;
+        playerStatus = null;
         root.removeAllViews();
         ScrollView scroller = new ScrollView(this);
         scroller.setFillViewport(true);
@@ -789,24 +786,13 @@ public final class MainActivity extends Activity {
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        playerScreen = column();
-        playerScreen.setPadding(dp(18), dp(12), dp(18), dp(10));
+        // Playback has one edge-to-edge surface. All actions belong to the
+        // auto-hiding overlay; there is no separate windowed player screen.
+        playerScreen = new FrameLayout(this);
         root.addView(playerScreen, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout bar = row();
-        playerBar = bar;
-        playerScreen.addView(bar, new LinearLayout.LayoutParams(-1, dp(58)));
-        Button back = button("Back", () -> onBackPressed());
-        playerBackButton = back;
-        bar.addView(back, new LinearLayout.LayoutParams(dp(100), dp(52)));
-        TextView title = text("  " + item.title + (item.kind.equals("tv") ? "  S" + s + " E" + e : ""), 20, WHITE, true);
-        bar.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
         String[] names = sourceNames(item);
-        Button sources = button("Source: " + names[source], () -> choosePlayerSource(item));
-        barSourceButton = sources;
-        bar.addView(sources, new LinearLayout.LayoutParams(dp(180), dp(50)));
-        Button fullscreen = button("Fullscreen", this::enterPlayerFullscreen);
-        bar.addView(fullscreen, new LinearLayout.LayoutParams(dp(135), dp(50)));
         player = new WebView(this);
+        final WebView sessionPlayer = player;
         player.setBackgroundColor(Color.BLACK);
         player.setFocusable(true);
         player.getSettings().setJavaScriptEnabled(true);
@@ -819,15 +805,18 @@ public final class MainActivity extends Activity {
         player.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
             @Override public void onShowCustomView(View view, CustomViewCallback callback) {
-                if (customVideoView != null) { callback.onCustomViewHidden(); return; }
+                if (!playerOpen || player != sessionPlayer || customVideoView != null) { callback.onCustomViewHidden(); return; }
                 customVideoView = view;
                 customVideoCallback = callback;
                 playerScreen.setVisibility(View.GONE);
                 root.addView(view, new FrameLayout.LayoutParams(-1, -1));
                 enterPlayerFullscreen();
-                view.requestFocus();
             }
-            @Override public void onHideCustomView() { clearCustomVideoView(); }
+            @Override public void onHideCustomView() {
+                if (player != sessionPlayer) return;
+                clearCustomVideoView();
+                if (playerOpen) enterPlayerFullscreen();
+            }
         });
         player.setWebViewClient(new WebViewClient() {
             @Override public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -842,28 +831,17 @@ public final class MainActivity extends Activity {
                 return host == null || !(host.equals("pantyflix.com") || host.equals("vidbolt.xyz") || host.equals("bingr.one") || host.equals("embed.vidrift.in") || host.equals("embed.st"));
             }
         });
-        playerScreen.addView(player, new LinearLayout.LayoutParams(-1, 0, 1));
+        playerScreen.addView(player, new FrameLayout.LayoutParams(-1, -1));
         player.setVisibility(View.GONE);
         playerStatus = text("Preparing " + names[source] + "...", 20, WHITE, true);
         playerStatus.setGravity(Gravity.CENTER);
-        playerScreen.addView(playerStatus, new LinearLayout.LayoutParams(-1, 0, 1));
+        playerScreen.addView(playerStatus, new FrameLayout.LayoutParams(-1, -1));
         loadSource(item, source, s, e);
-        if (item.kind.equals("tv")) {
-            LinearLayout controls = row();
-            episodeControls = controls;
-            playerScreen.addView(controls, new LinearLayout.LayoutParams(-1, dp(56)));
-            controls.addView(button("Previous episode", () -> showPlayer(item, s, Math.max(1, e - 1), currentSourceIndex)), new LinearLayout.LayoutParams(dp(210), dp(50)));
-            controls.addView(button("Next episode", () -> showPlayer(item, s, e + 1, currentSourceIndex)), new LinearLayout.LayoutParams(dp(190), dp(50)));
-        } else episodeControls = null;
         buildPlayerOverlay(item);
         enterPlayerFullscreen();
     }
 
     private void enterPlayerFullscreen() {
-        playerFullscreen = true;
-        if (playerBar != null) playerBar.setVisibility(View.GONE);
-        if (episodeControls != null) episodeControls.setVisibility(View.GONE);
-        if (playerScreen != null) playerScreen.setPadding(0, 0, 0, 0);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         if (playerOverlay != null) playerOverlay.activate();
@@ -875,7 +853,7 @@ public final class MainActivity extends Activity {
             this::focusVideo, title,
             item.kind.equals("tv") ? () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex) : null,
             item.kind.equals("tv") ? () -> showPlayer(item, season, episode + 1, currentSourceIndex) : null,
-            () -> choosePlayerSource(item), () -> loadSource(item, currentSourceIndex, season, episode), this::exitPlayerFullscreen);
+            () -> choosePlayerSource(item), () -> loadSource(item, currentSourceIndex, season, episode), this::closePlayer);
         playerOverlay.sourceName(sourceNames(item)[currentSourceIndex]);
         root.addView(playerOverlay, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
     }
@@ -887,7 +865,7 @@ public final class MainActivity extends Activity {
     }
 
     private void revealPlayerOverlay(boolean focus) {
-        if (playerFullscreen && playerOverlay != null) playerOverlay.show(focus);
+        if (playerOpen && playerOverlay != null) playerOverlay.show(focus);
     }
 
     private void choosePlayerSource(Item item) {
@@ -898,8 +876,6 @@ public final class MainActivity extends Activity {
         clearCustomVideoView();
         currentSourceIndex = source;
         int request = ++sourceRequest;
-        String label = "Source: " + sourceNames(item)[source];
-        if (barSourceButton != null) barSourceButton.setText(label);
         if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source]);
         releaseNativePlayer();
         if (embeddedPlayer != null) embeddedPlayer.reset();
@@ -922,7 +898,7 @@ public final class MainActivity extends Activity {
     private void playNativeRift(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
         NativePlayback video = new NativePlayback(this, stream, referer, captions);
         nativePlayer = video;
-        playerScreen.addView(video.view, 1, new LinearLayout.LayoutParams(-1, 0, 1));
+        playerScreen.addView(video.view, 0, new FrameLayout.LayoutParams(-1, -1));
         if (playerStatus != null) playerStatus.setVisibility(View.GONE);
         video.player.addListener(new Player.Listener() {
             @Override public void onPlayerError(PlaybackException error) {
@@ -947,21 +923,19 @@ public final class MainActivity extends Activity {
         root.removeView(customVideoView);
         customVideoView = null;
         if (customVideoCallback != null) {
-            customVideoCallback.onCustomViewHidden();
+            WebChromeClient.CustomViewCallback callback = customVideoCallback;
             customVideoCallback = null;
+            callback.onCustomViewHidden();
         }
         if (playerScreen != null) playerScreen.setVisibility(View.VISIBLE);
     }
 
-    private void exitPlayerFullscreen() {
-        if (playerOverlay != null) playerOverlay.deactivate();
-        clearCustomVideoView();
-        playerFullscreen = false;
-        getWindow().getDecorView().setSystemUiVisibility(0);
-        if (playerScreen != null) playerScreen.setPadding(dp(18), dp(12), dp(18), dp(10));
-        if (playerBar != null) playerBar.setVisibility(View.VISIBLE);
-        if (episodeControls != null) episodeControls.setVisibility(View.VISIBLE);
-        if (playerBackButton != null) playerBackButton.requestFocus();
+    private void closePlayer() {
+        if (!playerOpen) return;
+        playerOpen = false;
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        if (selected != null && !selected.kind.equals("sport")) showDetail(selected);
+        else openSection("Live Sports");
     }
 
     private void loadEmbed(Item item, int source, int s, int e) {
@@ -1069,8 +1043,17 @@ public final class MainActivity extends Activity {
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
-        if (playerOpen && playerOverlay != null && playerOverlay.handleKey(event)) return true;
         int code = event.getKeyCode();
+        // Own the complete Back press before a provider's custom video view can
+        // consume it. Dialogs have their own window and still dismiss normally.
+        if (code == KeyEvent.KEYCODE_BACK && (playerOpen || playerBackKeyDown)) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                playerBackKeyDown = true;
+                if (event.getRepeatCount() == 0) closePlayer();
+            } else if (event.getAction() == KeyEvent.ACTION_UP) playerBackKeyDown = false;
+            return true;
+        }
+        if (playerOpen && playerOverlay != null && playerOverlay.handleKey(event)) return true;
         boolean directional = code == KeyEvent.KEYCODE_DPAD_LEFT || code == KeyEvent.KEYCODE_DPAD_RIGHT
             || code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
         if (event.getAction() == KeyEvent.ACTION_DOWN && directional) {
@@ -1080,13 +1063,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (playerOpen && playerFullscreen) {
-            exitPlayerFullscreen();
-        } else if (playerOpen) {
-            playerOpen = false;
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            if (selected != null && !selected.kind.equals("sport")) showDetail(selected); else openSection("Live Sports");
-        } else if (detailOpen) openSection(section);
+        if (playerOpen) closePlayer();
+        else if (detailOpen) openSection(section);
         else if (!section.equals("Home")) openSection("Home");
         else super.onBackPressed();
     }
@@ -1097,6 +1075,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        playerOpen = false;
+        sourceRequest++;
         if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
         releaseNativePlayer();

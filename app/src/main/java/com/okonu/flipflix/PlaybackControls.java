@@ -107,7 +107,7 @@ final class PlaybackControls extends LinearLayout {
         source = icon(actions, "Choose source", "source", sourceAction);
         icon(actions, "Retry playback", "retry", retry);
         resize = icon(actions, "Fill screen (crop edges)", "fill", this::toggleResize);
-        icon(actions, "Exit fullscreen", "fullscreen", exit);
+        icon(actions, "Close player", "back", exit);
         hint.setTextColor(0xffb3b3b3);
         hint.setPadding(dp(8), dp(7), 0, 0);
         addView(hint, new LayoutParams(-1, dp(28)));

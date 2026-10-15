@@ -70,7 +70,7 @@ public final class PlaybackControlsTest {
             controls = new PlaybackControls(activity, () -> backend, video::requestFocus,
                 "TV playback test | Season 1 Episode 1", () -> {}, () -> {}, () -> {}, () -> {}, () -> {});
             frame.addView(controls, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
-            field("playerOverlay", controls); field("playerOpen", true); field("playerFullscreen", true);
+            field("playerOverlay", controls); field("playerOpen", true);
             controls.activate();
         });
     }
@@ -193,7 +193,7 @@ public final class PlaybackControlsTest {
         assertEquals("fit", backend.value);
         main(() -> assertEquals("Fill screen (crop edges)", activity.getCurrentFocus().getContentDescription()));
         key(KeyEvent.KEYCODE_DPAD_RIGHT);
-        main(() -> assertEquals("Exit fullscreen", activity.getCurrentFocus().getContentDescription()));
+        main(() -> assertEquals("Close player", activity.getCurrentFocus().getContentDescription()));
     }
 
     private File copyAsset(String name) throws Exception {
