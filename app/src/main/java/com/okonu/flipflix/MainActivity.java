@@ -47,8 +47,10 @@ public final class MainActivity extends Activity {
     private final CatalogApi api = new CatalogApi();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<List<View>> focusRows = new ArrayList<>();
-    private final List<View> navButtons = new ArrayList<>();
+    private final List<CatalogRow> catalogRows = new ArrayList<>();
     private final List<Button> overlayButtons = new ArrayList<>();
+    private FullCollection fullCollection;
+    private Button loadMoreButton;
     private FrameLayout root;
     private LinearLayout content;
     private WebView player;
@@ -61,7 +63,7 @@ public final class MainActivity extends Activity {
     private View episodeControls;
     private Button barSourceButton;
     private Button overlaySourceButton;
-    private View selectedNavButton;
+    private View topAction;
     private View customVideoView;
     private WebChromeClient.CustomViewCallback customVideoCallback;
     private boolean playerFullscreen;
@@ -111,6 +113,40 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private static final class CatalogRow {
+        final String pathPrefix;
+        final String kind;
+        final LinearLayout cards;
+        final List<View> tiles = new ArrayList<>();
+        View headingView;
+        int nextPage = 1;
+        boolean loading;
+        boolean complete;
+        View pendingFrom;
+
+        CatalogRow(String pathPrefix, String kind, LinearLayout cards) {
+            this.pathPrefix = pathPrefix;
+            this.kind = kind;
+            this.cards = cards;
+        }
+    }
+
+    private static final class FullCollection {
+        final String pathPrefix;
+        final String kind;
+        final LinearLayout grid;
+        final List<View> tiles = new ArrayList<>();
+        int nextPage = 1;
+        boolean loading;
+        boolean complete;
+
+        FullCollection(String pathPrefix, String kind, LinearLayout grid) {
+            this.pathPrefix = pathPrefix;
+            this.kind = kind;
+            this.grid = grid;
+        }
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
@@ -137,8 +173,8 @@ public final class MainActivity extends Activity {
         if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         return t;
     }
-    private LinearLayout column() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); l.setClipChildren(false); l.setClipToPadding(false); return l; }
-    private LinearLayout row() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); l.setClipChildren(false); l.setClipToPadding(false); return l; }
+    private LinearLayout column() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.VERTICAL); return l; }
+    private LinearLayout row() { LinearLayout l = new LinearLayout(this); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
     private void gap(LinearLayout l, int height) { View v = new View(this); l.addView(v, new LinearLayout.LayoutParams(1, dp(height))); }
     private Button button(String label, Runnable action) {
         return button(label, action, false);
@@ -173,40 +209,28 @@ public final class MainActivity extends Activity {
         playerOverlay = null;
         overlayButtons.clear();
         focusRows.clear();
-        navButtons.clear();
+        catalogRows.clear();
+        fullCollection = null;
+        loadMoreButton = null;
+        topAction = null;
         getWindow().getDecorView().setSystemUiVisibility(0);
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
-        LinearLayout entire = row();
-        entire.setGravity(Gravity.TOP);
-        root.addView(entire, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout rail = column();
-        rail.setPadding(dp(12), dp(20), dp(12), dp(20));
-        rail.setBackgroundColor(Color.rgb(12, 12, 12));
-        entire.addView(rail, new LinearLayout.LayoutParams(dp(126), -1));
-        TextView brand = text("F", 36, ACCENT, true);
-        brand.setGravity(Gravity.CENTER);
-        rail.addView(brand, new LinearLayout.LayoutParams(-1, dp(62)));
-        for (String name : new String[]{"Home", "Search", "Movies", "TV Shows", "Anime", "Sports", "My Space"}) {
-            Button nav = button(name, () -> openSection(name));
-            navButtons.add(nav);
-            if (name.equals(section)) selectedNavButton = nav;
-            nav.setTextSize(13);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54));
-            p.bottomMargin = dp(8);
-            rail.addView(nav, p);
-        }
         ScrollView scroller = new ScrollView(this);
-        scroller.setClipChildren(false);
-        scroller.setClipToPadding(false);
         scroller.setFillViewport(true);
         scroller.setVerticalScrollBarEnabled(false);
-        entire.addView(scroller, new LinearLayout.LayoutParams(0, -1, 1));
+        root.addView(scroller, new FrameLayout.LayoutParams(-1, -1));
         content = column();
-        content.setPadding(dp(38), dp(25), dp(38), dp(38));
+        content.setPadding(dp(36), dp(20), dp(36), dp(34));
         scroller.addView(content);
-        content.addView(text(title, 30, WHITE, true));
-        gap(content, 16);
+        LinearLayout header = row();
+        content.addView(header, new LinearLayout.LayoutParams(-1, dp(58)));
+        TextView brand = text(title, 31, WHITE, true);
+        header.addView(brand, new LinearLayout.LayoutParams(0, -1, 1));
+        Button action = button(section.equals("Home") ? "Search" : "Home", () -> openSection(section.equals("Home") ? "Search" : "Home"));
+        topAction = action;
+        header.addView(action, new LinearLayout.LayoutParams(dp(132), dp(48)));
+        gap(content, 14);
     }
 
     private void openSection(String name) {
@@ -216,70 +240,90 @@ public final class MainActivity extends Activity {
         generation++;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         shell(name.equals("Home") ? "Flipflix" : name);
-        if (name.equals("Home")) {
-            content.addView(text("A native TV catalog experiment", 16, MUTED, false));
-            gap(content, 20);
-            loadRow("Trending", "/api/tmdb/trending/all/day?page=1", "movie");
-            loadRow("Popular movies", moviePath(), "movie");
-            loadRow("Popular TV shows", tvPath(), "tv");
-        } else if (name.equals("Search")) searchScreen();
-        else if (name.equals("Movies")) gridScreen(moviePath(), "movie");
-        else if (name.equals("TV Shows")) gridScreen(tvPath(), "tv");
-        else if (name.equals("Anime")) gridScreen("/api/tmdb/discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc&page=1&include_adult=false", "tv");
-        else if (name.equals("Sports")) sportsScreen();
-        else {
-            content.addView(text("My Space requires a Pantyflix account. Account sign-in is not part of this research build.", 18, MUTED, false));
-            gap(content, 20);
-            content.addView(text("Local watch history and favorites can be added without website login.", 16, MUTED, false));
-        }
+        if (name.equals("Search")) searchScreen();
+        else if (name.equals("Home")) {
+            content.addView(text("Browse with the remote. Move down for more collections.", 15, MUTED, false));
+            gap(content, 18);
+            loadRow("Trending", "/api/tmdb/trending/all/day?page=", "movie");
+            loadRow("Movies", moviePath(), "movie");
+            loadRow("TV Shows", tvPath(), "tv");
+            loadRow("Anime", "/api/tmdb/discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc&include_adult=false&page=", "tv");
+            loadSportsRow();
+        } else showCollection(name);
     }
 
-    private String moviePath() { return "/api/tmdb/discover/movie?sort_by=popularity.desc&page=1&include_adult=false&vote_count.gte=80&include_video=false"; }
-    private String tvPath() { return "/api/tmdb/discover/tv?sort_by=popularity.desc&page=1&include_adult=false&vote_count.gte=80&include_video=false"; }
+    private String moviePath() { return "/api/tmdb/discover/movie?sort_by=popularity.desc&include_adult=false&vote_count.gte=80&include_video=false&page="; }
+    private String tvPath() { return "/api/tmdb/discover/tv?sort_by=popularity.desc&include_adult=false&vote_count.gte=80&include_video=false&page="; }
 
-    private void loadRow(String heading, String path, String kind) {
-        TextView title = text(heading, 22, WHITE, true);
-        content.addView(title);
-        gap(content, 8);
+    private CatalogRow createRow(String heading, String pathPrefix, String kind) {
+        TextView title = text(heading + "  >", 22, WHITE, true);
+        title.setFocusableInTouchMode(true);
+        title.setClickable(true);
+        title.setOnClickListener(v -> openSection(heading));
+        title.setOnFocusChangeListener((v, focused) -> {
+            title.setTextColor(focused ? ACCENT : WHITE);
+        });
+        content.addView(title, new LinearLayout.LayoutParams(-1, dp(38)));
+        gap(content, 6);
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
-        scroll.setClipChildren(false);
-        scroll.setClipToPadding(false);
         LinearLayout cards = row();
+        cards.setPadding(dp(12), dp(12), dp(12), dp(12));
+        cards.setClipChildren(false);
         scroll.addView(cards);
         content.addView(scroll);
         gap(content, 22);
-        List<View> focusRow = new ArrayList<>();
-        focusRows.add(focusRow);
+        CatalogRow state = new CatalogRow(pathPrefix, kind, cards);
+        state.headingView = title;
+        catalogRows.add(state);
+        focusRows.add(state.tiles);
+        return state;
+    }
+
+    private void loadRow(String heading, String pathPrefix, String kind) {
+        CatalogRow state = createRow(heading, pathPrefix, kind);
+        loadNextPage(state);
+    }
+
+    private void loadNextPage(CatalogRow state) {
+        if (state.loading || state.complete || state.pathPrefix == null) return;
+        state.loading = true;
+        int page = state.nextPage;
         int request = generation;
-        api.object(path, (json, error) -> {
+        api.object(state.pathPrefix + page, (json, error) -> {
             if (request != generation) return;
-            if (error != null || json == null) { cards.addView(text("Catalog unavailable", 16, MUTED, false)); return; }
+            state.loading = false;
+            if (error != null || json == null) {
+                if (state.tiles.isEmpty()) state.cards.addView(text("Catalog unavailable", 16, MUTED, false));
+                return;
+            }
             JSONArray entries = json.optJSONArray("results");
-            if (entries == null) return;
-            for (int i = 0; i < Math.min(entries.length(), 18); i++) {
+            if (entries == null || entries.length() == 0) { state.complete = true; return; }
+            int previousCount = state.tiles.size();
+            for (int i = 0; i < entries.length(); i++) {
                 JSONObject o = entries.optJSONObject(i);
                 if (o != null) {
-                    View tile = card(Item.from(o, kind), false);
-                    cards.addView(tile);
-                    focusRow.add(tile);
+                    View tile = card(Item.from(o, state.kind), false, () -> maybeLoadMore(state));
+                    state.cards.addView(tile);
+                    state.tiles.add(tile);
                 }
             }
-            if (heading.equals("Trending") && !focusRow.isEmpty()) focusRow.get(0).requestFocus();
+            state.nextPage++;
+            int totalPages = json.optInt("total_pages", Integer.MAX_VALUE);
+            if (state.nextPage > totalPages) state.complete = true;
+            if (state.pendingFrom != null && getCurrentFocus() == state.pendingFrom && state.tiles.size() > previousCount) {
+                focusTile(state.tiles.get(previousCount));
+            }
+            state.pendingFrom = null;
+            if (catalogRows.indexOf(state) == 0 && previousCount == 0 && !state.tiles.isEmpty() && section.equals("Home")) {
+                focusTile(state.tiles.get(0));
+            }
         });
     }
 
-    private void gridScreen(String path, String kind) {
-        content.addView(text("Use the remote to select a title. Back returns to this list.", 15, MUTED, false));
-        gap(content, 18);
-        LinearLayout grid = column();
-        content.addView(grid);
-        int request = generation;
-        api.object(path, (json, error) -> {
-            if (request != generation) return;
-            if (error != null || json == null) { grid.addView(text("Could not load catalog. Check the connection.", 18, MUTED, false)); return; }
-            fillGrid(grid, json.optJSONArray("results"), kind);
-        });
+    private void maybeLoadMore(CatalogRow state) {
+        int index = state.tiles.indexOf(getCurrentFocus());
+        if (index >= state.tiles.size() - 4) loadNextPage(state);
     }
 
     private void fillGrid(LinearLayout target, JSONArray entries, String kind) {
@@ -295,7 +339,7 @@ public final class MainActivity extends Activity {
             }
             JSONObject o = entries.optJSONObject(i);
             if (o != null) {
-                View tile = card(Item.from(o, kind), false);
+                View tile = card(Item.from(o, kind), false, null);
                 line.addView(tile);
                 focusRow.add(tile);
             }
@@ -303,7 +347,7 @@ public final class MainActivity extends Activity {
         if (!focusRows.isEmpty() && !focusRows.get(0).isEmpty()) focusRows.get(0).get(0).requestFocus();
     }
 
-    private View card(Item item, boolean sports) {
+    private View card(Item item, boolean sports, Runnable onFocused) {
         LinearLayout box = column();
         box.setFocusableInTouchMode(true);
         box.setClickable(true);
@@ -330,6 +374,7 @@ public final class MainActivity extends Activity {
             box.setScaleX(focus ? 1.06f : 1f);
             box.setScaleY(focus ? 1.06f : 1f);
             box.setElevation(focus ? dp(12) : 0);
+            if (focus && onFocused != null) onFocused.run();
         });
         return box;
     }
@@ -365,22 +410,14 @@ public final class MainActivity extends Activity {
         query.requestFocus();
     }
 
-    private void sportsScreen() {
-        content.addView(text("Live listings. Streams use a third-party embedded player.", 16, MUTED, false));
-        gap(content, 18);
-        LinearLayout grid = column();
-        content.addView(grid);
+    private void loadSportsRow() {
+        CatalogRow state = createRow("Live Sports", null, "sport");
+        state.complete = true;
         int request = generation;
         api.array("/api/streamed/matches/live", (json, error) -> {
             if (request != generation) return;
-            if (error != null || json == null) { grid.addView(text("Sports unavailable", 18, MUTED, false)); return; }
-            LinearLayout line = null;
-            List<View> focusRow = null;
-            for (int i = 0; i < Math.min(json.length(), 35); i++) {
-                if (i % 5 == 0) {
-                    line = row(); line.setGravity(Gravity.TOP); grid.addView(line);
-                    focusRow = new ArrayList<>(); focusRows.add(focusRow);
-                }
+            if (error != null || json == null) { state.cards.addView(text("Sports unavailable", 18, MUTED, false)); return; }
+            for (int i = 0; i < json.length(); i++) {
                 JSONObject o = json.optJSONObject(i);
                 if (o == null) continue;
                 Item item = new Item();
@@ -396,11 +433,118 @@ public final class MainActivity extends Activity {
                     JSONObject source = sources.optJSONObject(0);
                     if (source != null) item.backdrop = source.optString("source") + "/" + source.optString("id");
                 }
-                View tile = card(item, true);
-                line.addView(tile);
-                focusRow.add(tile);
+                View tile = card(item, true, null);
+                state.cards.addView(tile);
+                state.tiles.add(tile);
             }
-            if (!focusRows.isEmpty() && !focusRows.get(0).isEmpty()) focusRows.get(0).get(0).requestFocus();
+            if (state.tiles.isEmpty()) state.cards.addView(text("No live events", 16, MUTED, false));
+        });
+    }
+
+    private void showCollection(String name) {
+        content.addView(text("Browse " + name + ". Back returns to all collections.", 15, MUTED, false));
+        gap(content, 18);
+        LinearLayout grid = column();
+        content.addView(grid);
+        String path;
+        String kind;
+        if (name.equals("Trending")) { path = "/api/tmdb/trending/all/day?page="; kind = "movie"; }
+        else if (name.equals("Movies")) { path = moviePath(); kind = "movie"; }
+        else if (name.equals("TV Shows")) { path = tvPath(); kind = "tv"; }
+        else if (name.equals("Anime")) {
+            path = "/api/tmdb/discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc&include_adult=false&page=";
+            kind = "tv";
+        } else if (name.equals("Live Sports")) { path = null; kind = "sport"; }
+        else { content.addView(text("Collection unavailable", 17, MUTED, false)); return; }
+        FullCollection state = new FullCollection(path, kind, grid);
+        fullCollection = state;
+        if (path == null) {
+            loadSportsCollection(state);
+            return;
+        }
+        Button more = button("Load more", () -> loadCollectionPage(state));
+        loadMoreButton = more;
+        content.addView(more, new LinearLayout.LayoutParams(dp(180), dp(52)));
+        more.setEnabled(false);
+        more.setText("Loading...");
+        loadCollectionPage(state);
+    }
+
+    private void loadCollectionPage(FullCollection state) {
+        if (state.loading || state.complete || state.pathPrefix == null) return;
+        state.loading = true;
+        boolean fromButton = getCurrentFocus() == loadMoreButton;
+        if (loadMoreButton != null) { loadMoreButton.setEnabled(false); loadMoreButton.setText("Loading..."); }
+        int page = state.nextPage;
+        int request = generation;
+        api.object(state.pathPrefix + page, (json, error) -> {
+            if (request != generation || fullCollection != state) return;
+            state.loading = false;
+            if (error != null || json == null) {
+                if (state.tiles.isEmpty()) state.grid.addView(text("Catalog unavailable", 16, MUTED, false));
+                if (loadMoreButton != null) { loadMoreButton.setEnabled(true); loadMoreButton.setText("Retry loading"); }
+                return;
+            }
+            JSONArray entries = json.optJSONArray("results");
+            if (entries == null || entries.length() == 0) state.complete = true;
+            int start = state.tiles.size();
+            if (entries != null) {
+                for (int i = 0; i < entries.length(); i++) {
+                    JSONObject o = entries.optJSONObject(i);
+                    if (o != null) appendCollectionItem(state, Item.from(o, state.kind));
+                }
+            }
+            state.nextPage++;
+            if (state.nextPage > json.optInt("total_pages", Integer.MAX_VALUE)) state.complete = true;
+            if (loadMoreButton != null) {
+                loadMoreButton.setVisibility(state.complete ? View.GONE : View.VISIBLE);
+                loadMoreButton.setEnabled(!state.complete);
+                loadMoreButton.setText("Load more");
+            }
+            if (start < state.tiles.size() && (start == 0 || fromButton)) {
+                focusTile(state.tiles.get(start));
+            }
+        });
+    }
+
+    private void appendCollectionItem(FullCollection state, Item item) {
+        if (state.tiles.size() % 5 == 0) {
+            LinearLayout line = row();
+            line.setGravity(Gravity.TOP);
+            state.grid.addView(line);
+            focusRows.add(new ArrayList<>());
+        }
+        View tile = card(item, item.kind.equals("sport"), null);
+        ((LinearLayout) state.grid.getChildAt(state.grid.getChildCount() - 1)).addView(tile);
+        focusRows.get(focusRows.size() - 1).add(tile);
+        state.tiles.add(tile);
+    }
+
+    private void loadSportsCollection(FullCollection state) {
+        int request = generation;
+        api.array("/api/streamed/matches/live", (json, error) -> {
+            if (request != generation || fullCollection != state) return;
+            if (error != null || json == null) { state.grid.addView(text("Sports unavailable", 16, MUTED, false)); return; }
+            for (int i = 0; i < json.length(); i++) {
+                JSONObject o = json.optJSONObject(i);
+                if (o == null) continue;
+                Item item = new Item();
+                item.id = i;
+                item.kind = "sport";
+                item.title = o.optString("title", "Live event");
+                item.poster = o.optString("poster", "");
+                item.year = o.optString("category", "Live");
+                item.rating = "";
+                item.overview = o.optString("id", "");
+                JSONArray sources = o.optJSONArray("sources");
+                if (sources != null && sources.length() > 0) {
+                    JSONObject source = sources.optJSONObject(0);
+                    if (source != null) item.backdrop = source.optString("source") + "/" + source.optString("id");
+                }
+                appendCollectionItem(state, item);
+            }
+            if (state.tiles.isEmpty()) state.grid.addView(text("No live events", 16, MUTED, false));
+            else focusTile(state.tiles.get(0));
         });
     }
 
@@ -748,12 +892,26 @@ public final class MainActivity extends Activity {
     private boolean moveCatalogFocus(int keyCode) {
         View focused = getCurrentFocus();
         if (focused == null || focusRows.isEmpty()) return false;
-        if (navButtons.contains(focused)) {
-            if (keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
-            for (List<View> row : focusRows) {
-                if (!row.isEmpty()) return focusTile(row.get(0));
+        if (focused == topAction && keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            if (section.equals("Home") && !catalogRows.isEmpty()) return focusTile(catalogRows.get(0).headingView);
+            if (!focusRows.get(0).isEmpty()) return focusTile(focusRows.get(0).get(0));
+        }
+        if (focused == loadMoreButton && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+            for (int r = focusRows.size() - 1; r >= 0; r--) {
+                List<View> row = focusRows.get(r);
+                if (!row.isEmpty()) return focusTile(row.get(row.size() - 1));
             }
-            return false;
+        }
+        for (int r = 0; r < catalogRows.size(); r++) {
+            if (focused != catalogRows.get(r).headingView) continue;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                List<View> tiles = catalogRows.get(r).tiles;
+                return tiles.isEmpty() || focusTile(tiles.get(0));
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                return focusTile(r == 0 ? topAction : catalogRows.get(r - 1).headingView);
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) return true;
         }
         int rowIndex = -1;
         int columnIndex = -1;
@@ -765,15 +923,34 @@ public final class MainActivity extends Activity {
         List<View> row = focusRows.get(rowIndex);
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
             if (columnIndex > 0) return focusTile(row.get(columnIndex - 1));
-            if (selectedNavButton != null) return focusTile(selectedNavButton);
+            if (section.equals("Home") && rowIndex < catalogRows.size()) return focusTile(catalogRows.get(rowIndex).headingView);
+            if (rowIndex > 0 && fullCollection != null) {
+                List<View> previous = focusRows.get(rowIndex - 1);
+                if (!previous.isEmpty()) return focusTile(previous.get(previous.size() - 1));
+            }
+            return true;
         } else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
             if (columnIndex + 1 < row.size()) return focusTile(row.get(columnIndex + 1));
+            if (section.equals("Home") && rowIndex < catalogRows.size()) {
+                CatalogRow state = catalogRows.get(rowIndex);
+                if (state.complete) return focusTile(row.get(0));
+                state.pendingFrom = focused;
+                loadNextPage(state);
+            } else if (rowIndex + 1 < focusRows.size() && !focusRows.get(rowIndex + 1).isEmpty()) {
+                return focusTile(focusRows.get(rowIndex + 1).get(0));
+            }
             return true;
         } else if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
             int direction = keyCode == KeyEvent.KEYCODE_DPAD_UP ? -1 : 1;
             for (int r = rowIndex + direction; r >= 0 && r < focusRows.size(); r += direction) {
                 List<View> targetRow = focusRows.get(r);
                 if (!targetRow.isEmpty()) return focusTile(targetRow.get(Math.min(columnIndex, targetRow.size() - 1)));
+            }
+            if (direction < 0) {
+                if (section.equals("Home") && !catalogRows.isEmpty()) return focusTile(catalogRows.get(0).headingView);
+                if (topAction != null) return focusTile(topAction);
+            } else if (loadMoreButton != null && loadMoreButton.getVisibility() == View.VISIBLE) {
+                return focusTile(loadMoreButton);
             }
             return true;
         }
