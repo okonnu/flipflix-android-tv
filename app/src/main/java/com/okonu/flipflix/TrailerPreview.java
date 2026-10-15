@@ -272,9 +272,8 @@ final class TrailerPreview {
         loading.setShadowLayer(3 * density, 0, density, Color.BLACK);
         loading.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         loading.setAlpha(0f);
-        FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
-        p.rightMargin = (int) (36 * density);
-        p.bottomMargin = (int) (24 * density);
+        FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        p.topMargin = (int) (32 * density);
         root.addView(loading, p);
         loading.animate().alpha(1f).setDuration(220).setInterpolator(new DecelerateInterpolator()).start();
     }
