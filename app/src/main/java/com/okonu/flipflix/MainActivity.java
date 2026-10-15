@@ -67,6 +67,10 @@ public final class MainActivity extends Activity {
     private FrameLayout playerScreen;
     private PlaybackControls playerOverlay;
     private TrailerPreview trailerPreview;
+    private DiscoveryView discovery;
+    private List<DiscoveryRow> discoveryRows;
+    private final DiscoveryView.Position discoveryPosition = new DiscoveryView.Position();
+    private final DiscoveryView.Position libraryPosition = new DiscoveryView.Position();
     private View topAction;
     private View customVideoView;
     private WebChromeClient.CustomViewCallback customVideoCallback;
@@ -85,6 +89,7 @@ public final class MainActivity extends Activity {
         int id;
         String kind, title, poster, backdrop, overview, year, rating;
         String genres = "";
+        String sampleUrl = "";
         JSONArray genreIds;
         static Item from(JSONObject o, String fallbackKind) {
             Item item = new Item();
@@ -243,6 +248,7 @@ public final class MainActivity extends Activity {
 
     private void shell(String title) {
         releaseTrailerPreview();
+        releaseDiscovery();
         if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
         sourceRequest++;
@@ -288,14 +294,117 @@ public final class MainActivity extends Activity {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         shell(name.equals("Home") ? "Flipflix" : name);
         if (name.equals("Search")) searchScreen();
-        else if (name.equals("Home")) {
-            loadRow("Trending", "/api/tmdb/trending/all/day?page=", "movie");
-            loadRow("Movies", moviePath(), "movie");
-            loadRow("TV Shows", tvPath(), "tv");
-            loadRow("Anime", "/api/tmdb/discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc&include_adult=false&page=", "tv");
-            loadSportsRow();
-        } else showCollection(name);
+        else if (name.equals("Home") || name.equals("Library")) showDiscovery(name.equals("Library"));
+        else showCollection(name);
     }
+
+    private DiscoveryItem openFilm(String name, String slug, String year, String summary, String attribution) {
+        DiscoveryItem i = new DiscoveryItem(); i.key = "open:" + slug; i.title = name; i.category = "Open film preview";
+        i.thumbnail = i.heroImage = "asset:///open-films/" + slug + ".png";
+        i.previewUrl = i.watchUrl = "asset:///open-films/" + slug + ".mp4";
+        i.previewStartMs = slug.equals("sintel") ? 20000 : 8000;
+        i.description = summary; i.metadata = year + "  |  Open film  |  Official trailer"; i.attribution = attribution; return i;
+    }
+    private List<DiscoveryRow> buildDiscoveryRows() {
+        List<DiscoveryRow> result = new ArrayList<>();
+        DiscoveryItem sintel = openFilm("Sintel", "sintel", "2010", "A young traveler crosses a breathtaking world in search of the dragon she once saved.", "(c) 2010 Blender Foundation / durian.blender.org - CC BY 3.0");
+        DiscoveryItem bunny = openFilm("Big Buck Bunny", "bunny", "2008", "A peaceful giant finds his quiet woodland morning interrupted by three mischievous neighbors.", "(c) 2008 Blender Foundation / bigbuckbunny.org - CC BY 3.0");
+        DiscoveryRow featured = new DiscoveryRow("Featured picks", "Trending", "/api/tmdb/trending/all/day?page=", "movie", false);
+        featured.items.add(sintel); featured.items.add(bunny); result.add(featured);
+        result.add(new DiscoveryRow("Trending", "Trending", "/api/tmdb/trending/all/day?page=", "movie", false));
+        result.add(new DiscoveryRow("Movies", "Movies", moviePath(), "movie", false));
+        result.add(new DiscoveryRow("TV Shows", "TV Shows", tvPath(), "tv", false));
+        result.add(new DiscoveryRow("Crime TV", "Crime TV", discoveryPath("Crime TV"), "tv", false));
+        result.add(new DiscoveryRow("Comedy TV", "Comedy TV", discoveryPath("Comedy TV"), "tv", false));
+        DiscoveryRow spotlight = new DiscoveryRow("Spotlight", "Trending", "/api/tmdb/trending/movie/week?page=", "movie", true);
+        spotlight.items.add(DiscoveryItem.from(sintel.json())); spotlight.items.add(DiscoveryItem.from(bunny.json())); result.add(spotlight);
+        result.add(new DiscoveryRow("Recently added movies", "Recently added movies", discoveryPath("Recently added movies"), "movie", false));
+        result.add(new DiscoveryRow("Comedy movies", "Comedy movies", discoveryPath("Comedy movies"), "movie", false));
+        result.add(new DiscoveryRow("Anime", "Anime", "/api/tmdb/discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc&include_adult=false&page=", "tv", false));
+        result.add(new DiscoveryRow("Live Sports", "Live Sports", null, "sport", false));
+        return result;
+    }
+    private String discoveryPath(String name) {
+        if (name.equals("Crime TV")) return "/api/tmdb/discover/tv?with_genres=80&sort_by=popularity.desc&include_adult=false&page=";
+        if (name.equals("Comedy TV")) return "/api/tmdb/discover/tv?with_genres=35&sort_by=popularity.desc&include_adult=false&page=";
+        if (name.equals("Comedy movies")) return "/api/tmdb/discover/movie?with_genres=35&sort_by=popularity.desc&include_adult=false&page=";
+        return "/api/tmdb/discover/movie?sort_by=primary_release_date.desc&vote_count.gte=80&include_adult=false&page=";
+    }
+    private void showDiscovery(boolean library) {
+        root.removeAllViews();
+        if (discoveryRows == null) discoveryRows = buildDiscoveryRows();
+        List<DiscoveryRow> shown = discoveryRows;
+        if (library) {
+            shown = new ArrayList<>();
+            List<DiscoveryItem> saved = DiscoveryView.saved(this);
+            if (!saved.isEmpty()) { DiscoveryRow row = new DiscoveryRow("Your saved titles", "Home", null, "saved", false); row.items.addAll(saved); row.complete = true; shown.add(row); }
+        }
+        discovery = new DiscoveryView(this, api, shown, new DiscoveryView.Actions() {
+            @Override public void open(DiscoveryItem item) { openDiscoveryItem(item); }
+            @Override public void section(String name) { openSection(name); }
+            @Override public void more(DiscoveryRow row) { loadDiscoveryRow(row); }
+        }, library ? libraryPosition : discoveryPosition);
+        root.addView(discovery, new FrameLayout.LayoutParams(-1, -1));
+        if (!library) for (DiscoveryRow row : discoveryRows) if (row.items.size() <= 2) loadDiscoveryRow(row);
+    }
+    private void loadDiscoveryRow(DiscoveryRow row) {
+        if (row.loading || row.complete) return;
+        row.loading = true;
+        if (row.kind.equals("sport")) {
+            api.array("/api/streamed/matches/live", (json, error) -> {
+                row.loading = false; row.complete = true; row.failed = error != null;
+                if (json != null) for (int n = 0; n < json.length(); n++) {
+                    JSONObject o = json.optJSONObject(n); if (o == null) continue;
+                    DiscoveryItem i = new DiscoveryItem(); i.key = "sport:" + o.optString("id"); i.title = o.optString("title", "Live event");
+                    i.category = "Live Sports"; i.metadata = o.optString("category", "Live"); i.description = "Live event. Choose a stream on the next screen.";
+                    i.thumbnail = i.heroImage = "https://streamed.pk" + o.optString("poster"); i.live = true; i.catalog = o;
+                    row.items.add(i);
+                }
+                refreshDiscovery(row);
+            }); return;
+        }
+        if (row.path == null) { row.loading = false; row.complete = true; return; }
+        int page = row.page;
+        api.object(row.path + page, (json, error) -> {
+            row.loading = false;
+            JSONArray entries = json == null ? null : json.optJSONArray("results");
+            if (entries != null) for (int n = 0; n < entries.length(); n++) {
+                JSONObject o = entries.optJSONObject(n); if (o == null) continue;
+                Item source = Item.from(o, row.kind);
+                DiscoveryItem i = new DiscoveryItem(); i.key = source.kind + ":" + source.id; i.title = source.title; i.category = row.title;
+                i.description = source.overview; i.metadata = source.metadata();
+                i.thumbnail = source.backdrop.isEmpty() ? "https://image.tmdb.org/t/p/w500" + source.poster : "https://image.tmdb.org/t/p/w500" + source.backdrop;
+                if (row.featured && n > 0 && !source.poster.isEmpty()) i.thumbnail = "https://image.tmdb.org/t/p/w500" + source.poster;
+                i.heroImage = "https://image.tmdb.org/t/p/w1280" + (source.backdrop.isEmpty() ? source.poster : source.backdrop);
+                try { o.put("media_type", source.kind); } catch (org.json.JSONException ignored) { }
+                i.catalog = o;
+                boolean duplicate = false; for (DiscoveryItem old : row.items) if (old.key.equals(i.key)) duplicate = true;
+                if (!duplicate) row.items.add(i);
+            }
+            if (entries != null) { row.page++; row.complete = entries.length() == 0 || page >= json.optInt("total_pages", 1); }
+            // Retry errors only when the user asks by revisiting the category, not in a background loop.
+            if (error != null) { row.complete = true; row.failed = true; }
+            refreshDiscovery(row);
+        });
+    }
+    private void refreshDiscovery(DiscoveryRow row) {
+        if (discovery == null) return;
+        int index = discovery.rows.indexOf(row); if (index >= 0) discovery.refreshRow(index);
+    }
+    private void openDiscoveryItem(DiscoveryItem entry) {
+        if (!entry.watchUrl.isEmpty()) {
+            Item item = new Item(); item.kind = "sample"; item.title = entry.title; item.sampleUrl = entry.watchUrl;
+            showPlayer(item, 1, 1, 0); return;
+        }
+        if (entry.catalog == null) return;
+        if (entry.live) {
+            JSONObject o = entry.catalog; Item item = new Item(); item.kind = "sport"; item.title = entry.title; item.poster = o.optString("poster");
+            item.year = entry.metadata; item.rating = ""; item.overview = o.optString("id");
+            JSONArray sources = o.optJSONArray("sources"); JSONObject source = sources == null ? null : sources.optJSONObject(0);
+            item.backdrop = source == null ? "" : source.optString("source") + "/" + source.optString("id"); showSportsPlayer(item);
+        } else showDetail(Item.from(entry.catalog, entry.catalog.optString("media_type", "movie")));
+    }
+    private void releaseDiscovery() { if (discovery != null) { discovery.close(); discovery = null; } }
 
     private String moviePath() { return "/api/tmdb/discover/movie?sort_by=popularity.desc&include_adult=false&vote_count.gte=80&include_video=false&page="; }
     private String tvPath() { return "/api/tmdb/discover/tv?sort_by=popularity.desc&include_adult=false&vote_count.gte=80&include_video=false&page="; }
@@ -524,6 +633,9 @@ public final class MainActivity extends Activity {
         if (name.equals("Trending")) { path = "/api/tmdb/trending/all/day?page="; kind = "movie"; }
         else if (name.equals("Movies")) { path = movieFilters.pathPrefix(); kind = "movie"; }
         else if (name.equals("TV Shows")) { path = tvFilters.pathPrefix(); kind = "tv"; }
+        else if (name.equals("Crime TV") || name.equals("Comedy TV") || name.equals("Comedy movies") || name.equals("Recently added movies")) {
+            path = discoveryPath(name); kind = name.endsWith("TV") ? "tv" : "movie";
+        }
         else if (name.equals("Anime")) {
             path = "/api/tmdb/discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc&include_adult=false&page=";
             kind = "tv";
@@ -910,6 +1022,7 @@ public final class MainActivity extends Activity {
     }
 
     private String[] sourceNames(Item item) {
+        if (item.kind.equals("sample")) return new String[]{"Open film trailer"};
         return item.kind.equals("sport") ? new String[]{"Stream 1"} : new String[]{"Bolt", "Rift", "Fast"};
     }
 
@@ -927,6 +1040,7 @@ public final class MainActivity extends Activity {
 
     private void showPlayer(Item item, int s, int e, int source) {
         releaseTrailerPreview();
+        releaseDiscovery();
         selected = item;
         season = s;
         episode = e;
@@ -1039,6 +1153,16 @@ public final class MainActivity extends Activity {
             playerStatus.setText("Preparing " + sourceNames(item)[source] + "...");
             playerStatus.setVisibility(View.VISIBLE);
         }
+        if (item.kind.equals("sample")) {
+            NativePlayback video = new NativePlayback(this, item.sampleUrl, "https://media.w3.org/", null);
+            nativePlayer = video; playerScreen.addView(video.view, 0, new FrameLayout.LayoutParams(-1, -1));
+            playerStatus.setVisibility(View.GONE);
+            video.player.addListener(new Player.Listener() {
+                @Override public void onPlayerError(PlaybackException error) {
+                    if (nativePlayer == video) { playerStatus.setText("Trailer unavailable. Press Back to return."); playerStatus.setVisibility(View.VISIBLE); }
+                }
+            }); video.start(); return;
+        }
         if (source == 1 && !item.kind.equals("sport")) {
             String embed = sourceUrl(item, source, s, e);
             api.riftStream(embed, (stream, captions, error) -> {
@@ -1089,7 +1213,8 @@ public final class MainActivity extends Activity {
         if (!playerOpen) return;
         playerOpen = false;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (selected != null && !selected.kind.equals("sport")) showDetail(selected);
+        if (selected != null && selected.kind.equals("sample")) openSection(section);
+        else if (selected != null && !selected.kind.equals("sport")) showDetail(selected);
         else openSection("Live Sports");
     }
 
@@ -1218,6 +1343,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (discovery != null && discovery.handleKey(event)) return true;
         if (trailerPreview != null && trailerPreview.handleKey(event)) return true;
         int code = event.getKeyCode();
         // Own the complete Back press before a provider's custom video view can
@@ -1252,6 +1378,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         releaseTrailerPreview();
+        releaseDiscovery();
         playerOpen = false;
         sourceRequest++;
         if (playerOverlay != null) playerOverlay.deactivate();
@@ -1268,11 +1395,18 @@ public final class MainActivity extends Activity {
 
     @Override protected void onPause() {
         releaseTrailerPreview();
+        if (discovery != null) discovery.setActive(false);
         super.onPause();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (discovery != null) discovery.setActive(hasWindowFocus());
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (trailerPreview != null) trailerPreview.onWindowFocusChanged(hasFocus);
+        if (discovery != null) discovery.setActive(hasFocus);
     }
 }

@@ -344,25 +344,27 @@ public final class PlaybackControlsTest {
         String[] sections = {"Trending", "Movies", "TV Shows", "Anime", "Live Sports"};
         for (int target = 0; target < sections.length; target++) {
             if (target > 0) key(KeyEvent.KEYCODE_BACK);
-            main(() -> {
-                field("generation", 999999);
-                List<?> rows = (List<?>) readField(activity, "catalogRows");
-                ((View) readField(rows.get(0), "headingView")).requestFocus();
-            });
-            for (int down = 0; down < target; down++) key(KeyEvent.KEYCODE_DPAD_DOWN);
             String expected = sections[target];
+            int[] targetRow = {0};
+            main(() -> {
+                DiscoveryView view = (DiscoveryView) readField(activity, "discovery");
+                for (int i = 0; i < view.rows.size(); i++) if (view.rows.get(i).title.equals(expected)) targetRow[0] = i;
+                view.rowViews.get(0).heading.requestFocus();
+            });
+            for (int down = 0; down < targetRow[0]; down++) key(KeyEvent.KEYCODE_DPAD_DOWN);
             main(() -> assertEquals(expected, ((TextView) activity.getCurrentFocus()).getText().toString()));
             if (target == 1) {
-                // Also prove that a card in Movies can return Up to its own heading.
+                // Menu is the direct remote shortcut from a card to its category heading.
                 main(() -> {
-                    List<?> rows = (List<?>) readField(activity, "catalogRows");
-                    Object row = rows.get(1);
-                    View tile = new View(activity); tile.setFocusableInTouchMode(true);
-                    ((LinearLayout) readField(row, "cards")).addView(tile, new LinearLayout.LayoutParams(100, 100));
-                    @SuppressWarnings("unchecked") List<View> tiles = (List<View>) readField(row, "tiles");
-                    tiles.add(tile);
+                    DiscoveryView view = (DiscoveryView) readField(activity, "discovery");
+                    DiscoveryRow row = view.rows.get(targetRow[0]);
+                    if (row.items.isEmpty()) {
+                        DiscoveryItem item = new DiscoveryItem(); item.key = "test:heading"; item.title = "Test";
+                        item.category = "Movies"; item.thumbnail = item.heroImage = "";
+                        row.items.add(item); view.refreshRow(targetRow[0]);
+                    }
                 });
-                key(KeyEvent.KEYCODE_DPAD_RIGHT); key(KeyEvent.KEYCODE_DPAD_UP);
+                key(KeyEvent.KEYCODE_DPAD_RIGHT); key(KeyEvent.KEYCODE_MENU);
                 main(() -> assertEquals("Movies", ((TextView) activity.getCurrentFocus()).getText().toString()));
             }
             key(KeyEvent.KEYCODE_DPAD_CENTER);

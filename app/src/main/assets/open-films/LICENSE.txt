@@ -1,0 +1,29 @@
+Replacement open-film assets for the Flipflix discovery interface
+===============================================================
+
+Sintel
+Copyright (c) 2010 Blender Foundation / durian.blender.org
+https://durian.blender.org/about/
+
+Big Buck Bunny
+Copyright (c) 2008 Blender Foundation / www.bigbuckbunny.org
+https://peach.blender.org/about/
+
+Both films and their still artwork are licensed under Creative Commons
+Attribution 3.0 (CC BY 3.0):
+https://creativecommons.org/licenses/by/3.0/
+https://creativecommons.org/licenses/by/3.0/legalcode
+
+Original, unmodified trailer and poster files downloaded from the W3C mirror:
+https://media.w3.org/2010/05/sintel/trailer.mp4
+https://media.w3.org/2010/05/sintel/poster.png
+https://media.w3.org/2010/05/bunny/trailer.mp4
+https://media.w3.org/2010/05/bunny/poster.png
+
+In the discovery hero, Flipflix renders a muted, center-cropped excerpt of up
+to 25 seconds with a readability gradient. The Watch trailer action plays the
+complete, unmodified trailer using the native fullscreen player. The asset
+files themselves are unchanged. These are openly licensed sample replacements,
+not Flipflix originals, and do not imply endorsement by the creators or W3C.
+
+Credits are also shown beside the hero and in Local profile > Media credits.

@@ -22,6 +22,8 @@ class CatalogApi {
     interface ArrayResult { void done(JSONArray json, Exception error); }
     interface StreamResult { void done(String value, JSONArray captions, Exception error); }
     private final ExecutorService network = Executors.newFixedThreadPool(4);
+    // A slow catalog response must not hold up the selected poster or local sample artwork.
+    private final ExecutorService artwork = Executors.newFixedThreadPool(2);
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final LruCache<String, Bitmap> images = new LruCache<String, Bitmap>(64) {
         @Override protected int sizeOf(String key, Bitmap value) { return Math.max(1, value.getByteCount() / 1024 / 1024); }
@@ -98,16 +100,27 @@ class CatalogApi {
     void image(ImageView view, String path, boolean sports, int width) {
         if (path == null || path.isEmpty()) return;
         String url = sports ? "https://streamed.pk" + path : "https://image.tmdb.org/t/p/w" + width + path;
+        imageUrl(view, url, null);
+    }
+
+    void imageUrl(ImageView view, String url, Runnable ready) {
+        if (url == null || url.isEmpty()) return;
         view.setTag(url);
         Bitmap cached = images.get(url);
-        if (cached != null) { view.setImageBitmap(cached); return; }
-        network.execute(() -> {
+        if (cached != null) { view.setImageBitmap(cached); if (ready != null) ready.run(); return; }
+        artwork.execute(() -> {
             try {
-                byte[] bytes = readBytes(url);
-                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                Bitmap bitmap;
+                if (url.startsWith("asset:///")) {
+                    try (InputStream in = view.getContext().getAssets().open(url.substring(9))) { bitmap = BitmapFactory.decodeStream(in); }
+                } else {
+                    byte[] bytes = readBytes(url);
+                    bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                }
                 if (bitmap != null) {
                     images.put(url, bitmap);
-                    ui.post(() -> { if (url.equals(view.getTag())) view.setImageBitmap(bitmap); });
+                    Bitmap result = bitmap;
+                    ui.post(() -> { if (url.equals(view.getTag())) { view.setImageBitmap(result); if (ready != null) ready.run(); } });
                 }
             } catch (Exception ignored) { }
         });
@@ -133,5 +146,5 @@ class CatalogApi {
         } finally { connection.disconnect(); }
     }
 
-    void close() { network.shutdownNow(); }
+    void close() { network.shutdownNow(); artwork.shutdownNow(); }
 }

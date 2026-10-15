@@ -60,6 +60,13 @@ final class ControlIcon extends Drawable {
         } else if (name.equals("search")) {
             canvas.drawCircle(10, 10, 6.5f, paint);
             line(canvas, 15, 15, 21, 21);
+        } else if (name.equals("profile")) {
+            canvas.drawCircle(12, 8, 4, paint); canvas.drawArc(4, 12, 20, 25, 185, 170, false, paint);
+        } else if (name.equals("browse")) {
+            canvas.drawRoundRect(3, 3, 10, 10, 1, 1, paint); canvas.drawRoundRect(14, 3, 21, 10, 1, 1, paint);
+            canvas.drawRoundRect(3, 14, 10, 21, 1, 1, paint); canvas.drawRoundRect(14, 14, 21, 21, 1, 1, paint);
+        } else if (name.equals("library")) {
+            line(canvas, 5, 3, 19, 3, 19, 22, 12, 17, 5, 22, 5, 3);
         } else if (name.equals("home")) {
             line(canvas, 3, 11, 12, 3, 21, 11);
             line(canvas, 6, 9, 6, 21, 18, 21, 18, 9);
