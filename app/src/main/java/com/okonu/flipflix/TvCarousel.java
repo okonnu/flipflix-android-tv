@@ -1,22 +1,16 @@
 package com.okonu.flipflix;
 
 import android.content.Context;
-import android.graphics.Rect;
 import android.view.View;
 import android.view.Gravity;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 
 /** Four whole tiles per TV page. Remote movement never leaves an edge tile half cut. */
-final class TvCarousel extends HorizontalScrollView {
+final class TvCarousel extends TvHorizontalScrollView {
     static final int COLUMNS = 4;
     private int sizedWidth, sizedCount;
     TvCarousel(Context context) {
         super(context);
-        setHorizontalScrollBarEnabled(false);
-        setHorizontalFadingEdgeEnabled(false);
-        setSmoothScrollingEnabled(false);
-        setOverScrollMode(OVER_SCROLL_NEVER);
     }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
@@ -46,25 +40,13 @@ final class TvCarousel extends HorizontalScrollView {
         }
         super.onMeasure(widthSpec, heightSpec);
     }
-    @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
-        super.onLayout(changed, l, t, r, b);
-        align(findFocus());
-    }
-    @Override public void requestChildFocus(View child, View focused) {
-        super.requestChildFocus(child, focused);
-        align(focused);
-    }
-    @Override public boolean requestChildRectangleOnScreen(View child, Rect rectangle, boolean immediate) {
-        return align(findFocus());
-    }
-    private boolean align(View focused) {
+    @Override protected boolean revealFocus(View focused, boolean animate) {
         if (focused == null || getChildCount() == 0) return false;
         LinearLayout row = (LinearLayout) getChildAt(0);
         while (focused.getParent() instanceof View && focused.getParent() != row) focused = (View) focused.getParent();
         int index = row.indexOfChild(focused);
         if (index < 0) return false;
         View first = row.getChildAt(index / COLUMNS * COLUMNS);
-        scrollTo(Math.max(0, first.getLeft() - row.getPaddingLeft()), 0);
-        return true;
+        return moveTo(Math.max(0, first.getLeft() - row.getPaddingLeft()), animate);
     }
 }

@@ -316,9 +316,15 @@ public final class PlaybackControlsTest {
             for (int i = 0; i < 4; i++) assertWhole(tiles[i]);
             assertFalse(tiles[4].getGlobalVisibleRect(new Rect()));
             tiles[4].requestFocus();
+        });
+        waitFor(() -> !carousel[0].motion.isRunning());
+        main(() -> {
             assertWhole(tiles[4]); assertWhole(tiles[5]);
             assertFalse(tiles[3].getGlobalVisibleRect(new Rect()));
             tiles[3].requestFocus();
+        });
+        waitFor(() -> !carousel[0].motion.isRunning());
+        main(() -> {
             for (int i = 0; i < 4; i++) assertWhole(tiles[i]);
         });
     }

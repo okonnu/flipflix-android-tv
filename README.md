@@ -7,6 +7,7 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 - One TV-first Home screen with Trending, Movies, TV Shows, Anime, and Live Sports rows instead of a left navigation rail
 - Horizontal catalog rows fetch more pages as the remote approaches the end; finite live sports wraps to the first event
 - Home rows display four complete artwork cards per horizontal page, including the last partial batch. Titles and metadata sit over the artwork; section headings remain clickable without arrow characters
+- Horizontal page changes, vertical page/row navigation, and season choices glide into place with a 220-320ms decelerating animation at the normal system animation scale. Focus changes immediately; repeated presses retarget from the current position instead of queuing animations. Home headings stay visible with their row, final cards remain whole, and motions are cancelled when leaving a screen or starting a touch gesture
 - Selectable row headings open full-page collection grids with a Load more control; Search remains a top action
 - Movies and TV Shows have native remote-friendly Genre, Year, Minimum rating, Country, and Sort by menus plus Reset filters. Combine filters across the full catalog, with Most popular, Highest rated, Newest first, or Oldest first sorting. Movie year means original release year; TV year means first aired. Each section remembers its own choices across details, playback, and app restarts; Home rows stay unfiltered
 - Left/Right moves between filter buttons, OK opens a selection list, Back cancels it, and Down enters results. Up from the first card row returns to the last-used filter. Loading, no matches, and retry states never trap remote focus. Changing filters resets pagination and ignores late responses from the previous query
@@ -42,6 +43,12 @@ This fixes the false warning, not all provider/browser incompatibilities. The AP
 
 The existing native components use the community [Netflix Design System 2024 reference](https://www.figma.com/design/mknKOvsPMV2oLlYXGZwUO9/?node-id=202-19090), with the requested pure #000000 page/window backgrounds and artwork gradients fading into black. Dialog/input surfaces stay #181818, with #E50914 accents, white primary playback actions, gray secondary actions, 4dp corners, compact landscape catalog tiles, gradient title previews, and thumbnail episode rows. Android system sans-serif fonts substitute for the reference's Netflix Sans. TV focus uses a visible white outline, adapting the reference's mouse-hover states for remote navigation. Flipflix keeps its own name and existing feature set.
 
+## TV scrolling
+
+The scrolling behavior follows the focus-aware alignment and bounded-pending-movement principles used by [Android Leanback](https://developer.android.com/reference/androidx/leanback/widget/BaseGridView) and [DpadRecyclerView](https://rubensousa.github.io/DpadRecyclerView/recipes/scrolling/). This app retains its existing views and four-card paging rather than adding or migrating to either library.
+
+`TvScrollMotion` animates only scroll offsets using Android's frame-synced `ValueAnimator`, which honors the system animation scale. There are no timers running while idle and no per-frame layout or network operations. `TvHorizontalScrollView` and `TvScrollView` suppress the framework's immediate focus-reveal jump, retain focus bookkeeping, and animate a single current destination. The vertical scroller groups Home headings with their carousel. Initial layout and explicitly immediate visibility requests remain immediate; regular remote navigation animates. Appending catalog pages preserves the current focus and does not restart an unchanged destination.
+
 ## Build instructions
 
 The shared SDK is `/home/okonu/Android/Sdk`. No SDK copy is stored in this project.
@@ -63,6 +70,8 @@ This experimental release variant is non-debuggable but signed by the local Andr
 `PlayerNavigationTest` exercises the real Activity: fullscreen-only movie/TV/sports playback, single-Back return, source/menu/episode/retry navigation, native-video geometry and cleanup, provider custom fullscreen transitions, and rejection of late callbacks after closing playback.
 
 `CatalogFiltersTest` covers movie/series query parameters, saved choices, remote filter menus, focus with empty/loading/error states, filtered pagination, reset, stale response rejection, and detail-screen genre metadata using a deterministic catalog fixture.
+
+`TvScrollingTest` checks actual intermediate scroll frames, monotonic movement, quick direction changes, whole cards at rest, simultaneous vertical/horizontal movement, heading visibility, pagination during animation, season choices, and cancellation when a screen is removed. It runs on the TV emulator with deterministic native-view fixtures.
 
 ```sh
 ANDROID_HOME=/home/okonu/Android/Sdk ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest

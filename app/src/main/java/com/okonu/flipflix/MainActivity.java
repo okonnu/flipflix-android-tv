@@ -27,7 +27,6 @@ import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
@@ -262,9 +261,7 @@ public final class MainActivity extends Activity {
         playerScreen = null;
         playerStatus = null;
         root.removeAllViews();
-        ScrollView scroller = new ScrollView(this);
-        scroller.setFillViewport(true);
-        scroller.setVerticalScrollBarEnabled(false);
+        TvScrollView scroller = new TvScrollView(this);
         root.addView(scroller, new FrameLayout.LayoutParams(-1, -1));
         content = column();
         content.setPadding(dp(36), dp(16), dp(36), dp(34));
@@ -319,6 +316,7 @@ public final class MainActivity extends Activity {
         cards.setClipChildren(false);
         scroll.addView(cards);
         content.addView(scroll, new LinearLayout.LayoutParams(-1, -2));
+        ((TvScrollView) content.getParent()).addFocusGroup(title, scroll);
         gap(content, 16);
         CatalogRow state = new CatalogRow(pathPrefix, kind, cards);
         state.headingView = title;
@@ -794,7 +792,7 @@ public final class MainActivity extends Activity {
         gap(content, 22);
         content.addView(text("Episodes", 23, WHITE, true));
         gap(content, 12);
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        HorizontalScrollView scroll = new TvHorizontalScrollView(this);
         LinearLayout choices = row();
         scroll.addView(choices);
         content.addView(scroll);
@@ -1208,15 +1206,6 @@ public final class MainActivity extends Activity {
     private boolean focusTile(View target) {
         if (!target.requestFocus()) return false;
         target.requestRectangleOnScreen(new Rect(0, 0, target.getWidth(), target.getHeight()), false);
-        if (section.equals("Home")) {
-            for (CatalogRow row : catalogRows) {
-                if (row.headingView == target || row.tiles.contains(target)) {
-                    View scroll = (View) row.cards.getParent();
-                    content.requestRectangleOnScreen(new Rect(0, row.headingView.getTop(), content.getWidth(), scroll.getBottom()), true);
-                    break;
-                }
-            }
-        }
         return true;
     }
 
