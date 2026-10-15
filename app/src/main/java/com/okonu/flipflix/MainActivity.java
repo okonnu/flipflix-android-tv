@@ -84,6 +84,8 @@ public final class MainActivity extends Activity {
     private static final class Item {
         int id;
         String kind, title, poster, backdrop, overview, year, rating;
+        String genres = "";
+        JSONArray genreIds;
         static Item from(JSONObject o, String fallbackKind) {
             Item item = new Item();
             item.id = o.optInt("id");
@@ -100,7 +102,29 @@ public final class MainActivity extends Activity {
             }
             double vote = o.optDouble("vote_average", 0);
             item.rating = vote > 0 ? String.format(java.util.Locale.US, "%.1f", vote) : "";
+            item.genreIds = o.optJSONArray("genre_ids");
+            item.genres = genreNames(o.optJSONArray("genres"));
             return item;
+        }
+
+        static String genreNames(JSONArray genres) {
+            List<String> names = new ArrayList<>();
+            if (genres != null) for (int i = 0; i < genres.length(); i++) {
+                JSONObject genre = genres.optJSONObject(i);
+                if (genre == null || !(genre.opt("name") instanceof String)) continue;
+                String name = genre.optString("name").trim();
+                if (!name.isEmpty() && !names.contains(name)) names.add(name);
+            }
+            return TextUtils.join(", ", names);
+        }
+
+        String metadata() {
+            List<String> parts = new ArrayList<>();
+            if (!TextUtils.isEmpty(year)) parts.add(year);
+            parts.add(kind.equals("tv") ? "TV show" : "Movie");
+            if (!TextUtils.isEmpty(rating)) parts.add(rating);
+            if (!genres.isEmpty()) parts.add(genres);
+            return TextUtils.join("  |  ", parts);
         }
     }
 
@@ -704,7 +728,8 @@ public final class MainActivity extends Activity {
         content.addView(back, new LinearLayout.LayoutParams(dp(200), dp(40)));
         gap(content, 12);
         FrameLayout preview = new FrameLayout(this);
-        content.addView(preview, new LinearLayout.LayoutParams(-1, dp(304)));
+        preview.setMinimumHeight(dp(304));
+        content.addView(preview, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout details = column();
         details.setPadding(dp(24), dp(20), dp(20), dp(20));
         int detailWidth = Math.min(560, (int) (getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density) - 90);
@@ -714,7 +739,23 @@ public final class MainActivity extends Activity {
         name.setEllipsize(TextUtils.TruncateAt.END);
         details.addView(name);
         gap(details, 10);
-        TextView meta = text(item.year + "  |  " + (item.kind.equals("tv") ? "TV show" : "Movie") + (item.rating.isEmpty() ? "" : "  |  " + item.rating), 14, MUTED, false);
+        // Catalog rows already carry genre IDs. Reuse the filter vocabulary so
+        // the details screen does not need to wait for another network request.
+        if (item.genres.isEmpty() && item.genreIds != null) {
+            List<String> names = new ArrayList<>();
+            List<CatalogFilters.Option> options = (item.kind.equals("tv") ? tvFilters : movieFilters).options(CatalogFilters.GENRE);
+            for (int i = 0; i < item.genreIds.length(); i++) {
+                String id = String.valueOf(item.genreIds.optInt(i, -1));
+                for (CatalogFilters.Option option : options) {
+                    if (option.value.equals(id) && !names.contains(option.label)) names.add(option.label);
+                }
+            }
+            item.genres = TextUtils.join(", ", names);
+        }
+        TextView meta = text(item.metadata(), 14, MUTED, false);
+        meta.setTag("title-metadata");
+        meta.setMaxLines(2);
+        meta.setEllipsize(TextUtils.TruncateAt.END);
         details.addView(meta);
         gap(details, 10);
         TextView synopsis = text(item.overview, 15, WHITE, false);
@@ -739,6 +780,11 @@ public final class MainActivity extends Activity {
             if (request != generation || json == null) return;
             item.overview = json.optString("overview", item.overview);
             synopsis.setText(item.overview);
+            JSONArray genres = json.optJSONArray("genres");
+            if (genres != null) {
+                item.genres = Item.genreNames(genres);
+                meta.setText(item.metadata());
+            }
             if (item.kind.equals("tv")) addSeasons(item, json.optJSONArray("seasons"));
         });
     }

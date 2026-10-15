@@ -157,7 +157,9 @@ final class PlaybackControls extends LinearLayout {
     }
     private void send(String command, String value) {
         PlaybackBackend b = backend.get();
-        if (b == null || !b.state().available) {
+        PlaybackBackend.State s = b == null ? new PlaybackBackend.State() : b.state();
+        boolean startup = s.canStart && (command.equals("play") || command.equals("toggle") || command.equals("pause"));
+        if (b == null || (!s.available && !startup)) {
             Toast.makeText(activity, "Waiting for the source's video controls. Try another source if playback does not start.", Toast.LENGTH_SHORT).show(); return;
         }
         b.command(command, value); render();

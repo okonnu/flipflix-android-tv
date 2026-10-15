@@ -266,6 +266,62 @@ public final class CatalogFiltersTest {
         });
     }
 
+    @Test public void movieAndSeriesDetailsShowGenresImmediatelyThenRefreshNames() throws Exception {
+        for (String kind : new String[]{"movie", "tv"}) {
+            JSONObject response = page(1101383, 1, 1);
+            response.getJSONArray("results").getJSONObject(0).put("genre_ids", new JSONArray(kind.equals("movie") ? "[878,9648,53,878,999999]" : "[10765,9648]"));
+            JSONObject detail = new JSONObject("{\"genres\":[{\"name\":\"Science Fiction\"},{\"name\":\"Mystery\"},{\"name\":\"Mystery\"},null,{\"name\":null},{\"name\":123},{\"name\":\"  \"}]}");
+            main(() -> {
+                invoke("openSection", kind.equals("movie") ? "Movies" : "TV Shows");
+                fake.last().callback.done(response, null);
+                int before = fake.requests.size();
+                tiles().get(0).performClick();
+                TextView meta = ((View) field(activity(), "root")).findViewWithTag("title-metadata");
+                String expected = kind.equals("movie") ? "2024  |  Movie  |  8.0  |  Sci-Fi, Mystery, Thriller" : "2024  |  TV show  |  8.0  |  Sci-Fi & fantasy, Mystery";
+                assertEquals(expected, meta.getText().toString());
+                assertEquals("Uses only the existing details request", before + 1, fake.requests.size());
+                assertEquals("/api/tmdb/" + kind + "/1101383", fake.last().path);
+                fake.last().callback.done(detail, null);
+                assertTrue(meta.getText().toString().endsWith("Science Fiction, Mystery"));
+                assertEquals(2, meta.getMaxLines());
+                assertTrue("Metadata does not take source-button focus", activity().getCurrentFocus() instanceof Button);
+            });
+        }
+    }
+
+    @Test public void missingDetailGenresDoNotAddEmptyLabelsOrDiscardKnownGenres() throws Exception {
+        JSONObject response = page(1, 1, 1);
+        JSONObject missing = new JSONObject();
+        JSONObject known = new JSONObject("{\"genres\":[{\"name\":\"Drama\"}]}");
+        main(() -> {
+            fake.last().callback.done(response, null); tiles().get(0).performClick();
+            TextView meta = ((View) field(activity(), "root")).findViewWithTag("title-metadata");
+            assertEquals("2024  |  Movie  |  8.0", meta.getText().toString());
+            fake.last().callback.done(known, null);
+            assertTrue(meta.getText().toString().endsWith("Drama"));
+            fake.last().callback.done(missing, null);
+            assertTrue(meta.getText().toString().endsWith("Drama"));
+        });
+    }
+
+    @Test public void longTitleAndGenresDoNotClipTheDetailPanel() throws Exception {
+        JSONObject response = page(1, 1, 1);
+        response.getJSONArray("results").getJSONObject(0)
+            .put("title", "A very long movie title that takes two lines on the television screen")
+            .put("overview", "A family sets out on a journey to a distant world. Along the way they discover a mystery, face an unexpected danger, and must work together to make their way back home safely.")
+            .put("genres", new JSONArray("[{\"name\":\"Science Fiction\"},{\"name\":\"Mystery\"},{\"name\":\"Thriller\"},{\"name\":\"Adventure\"}]"));
+        main(() -> { fake.last().callback.done(response, null); tiles().get(0).performClick(); });
+        instrumentation().waitForIdleSync();
+        main(() -> {
+            TextView meta = ((View) field(activity(), "root")).findViewWithTag("title-metadata");
+            View panel = (View) meta.getParent(), preview = (View) panel.getParent();
+            assertTrue(panel.getHeight() > 0);
+            assertTrue("Title is not clipped above the preview", panel.getTop() >= 0);
+            assertTrue("Source buttons fit inside the preview", panel.getBottom() <= preview.getHeight());
+            assertTrue(meta.getText().toString().contains("Science Fiction, Mystery, Thriller, Adventure"));
+        });
+    }
+
     private void awaitDialogFocus(String text) {
         long deadline = SystemClock.uptimeMillis() + 5000;
         String focused = "";

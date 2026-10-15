@@ -105,6 +105,21 @@ public final class PlaybackControlsTest {
         assertEquals("pause", backend.last);
     }
 
+    @Test public void testRemoteCanStartSportsBeforeVideoIsReady() {
+        FakeBackend backend = new FakeBackend();
+        backend.s.available = false; backend.s.canStart = true; backend.s.paused = true;
+        install(backend);
+        key(KeyEvent.KEYCODE_DPAD_CENTER); assertEquals("toggle", backend.last);
+        key(KeyEvent.KEYCODE_MEDIA_PLAY); assertEquals("play", backend.last);
+        key(KeyEvent.KEYCODE_MEDIA_PAUSE); assertEquals("pause", backend.last);
+        int sent = backend.commands;
+        key(KeyEvent.KEYCODE_DPAD_RIGHT); key(KeyEvent.KEYCODE_DPAD_CENTER);
+        assertEquals("Seeking still requires a ready video", sent, backend.commands);
+        main(() -> backend.s.canStart = false);
+        key(KeyEvent.KEYCODE_MEDIA_PLAY);
+        assertEquals("Other providers keep their readiness check", sent, backend.commands);
+    }
+
     @Test public void testNativePlaybackSeekMuteCaptionsAndQuality() throws Exception {
         activity = getActivity();
         File movie = copyAsset("silent-black-25s.mp4");

@@ -1,6 +1,7 @@
 package com.okonu.flipflix;
 
 import android.webkit.WebView;
+import android.net.Uri;
 import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -66,9 +67,26 @@ final class EmbeddedPlayback implements PlaybackBackend {
     void pageFinished() {
         if (messaging && !documentStart && !script.isEmpty()) webView.evaluateJavascript(script, null);
     }
-    @Override public State state() { return latest; }
+    private boolean sportsPage() {
+        String url = webView.getUrl();
+        return url != null && SportsEmbedCompat.isSportsPage(Uri.parse(url));
+    }
+    @Override public State state() {
+        latest.canStart = sportsPage();
+        return latest;
+    }
     @Override public void refresh() { command("state", ""); }
     @Override public void command(String name, String value) {
+        if (sportsPage()) {
+            if (name.equals("pause")) {
+                webView.evaluateJavascript("window.__flipflixSportsStart && window.__flipflixSportsStart.cancel()", null);
+            } else if (!latest.available && (name.equals("play") || name.equals("toggle"))) {
+                // This path also works on old Fire OS without a message bridge,
+                // and before a video/frame exists to report its ready state.
+                webView.evaluateJavascript("window.__flipflixSportsStart && window.__flipflixSportsStart.play()", null);
+                return;
+            }
+        }
         if (frame == null) return;
         try { frame.postMessage(new JSONObject().put("name", name).put("value", value).toString()); }
         catch (Exception ignored) { reset(); }

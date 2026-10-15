@@ -20,7 +20,7 @@ import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** A one-page compatibility fix, not a general request filter or DOM scanner. */
+/** Scoped sports compatibility and startup, not a general filter or DOM scanner. */
 final class SportsEmbedCompat {
     private static final int MAX_HTML_BYTES = 2 * 1024 * 1024;
     private static final Pattern FIRST_SCRIPT = Pattern.compile("<script\\b", Pattern.CASE_INSENSITIVE);
@@ -30,11 +30,13 @@ final class SportsEmbedCompat {
 
     SportsEmbedCompat(WebView view) {
         userAgent = view.getSettings().getUserAgentString();
-        String source = "";
-        try (InputStream input = view.getContext().getAssets().open("sports-compat.js")) {
-            source = new String(readBounded(input), StandardCharsets.UTF_8);
-        } catch (Exception ignored) { }
-        script = source;
+        StringBuilder source = new StringBuilder();
+        for (String asset : new String[]{"sports-compat.js", "sports-start.js"}) {
+            try (InputStream input = view.getContext().getAssets().open(asset)) {
+                source.append(new String(readBounded(input), StandardCharsets.UTF_8)).append('\n');
+            } catch (Exception ignored) { }
+        }
+        script = source.toString();
         documentStart = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT);
         if (documentStart && !script.isEmpty()) {
             WebViewCompat.addDocumentStartJavaScript(view, script, Collections.singleton("https://embed.st"));
@@ -42,7 +44,7 @@ final class SportsEmbedCompat {
     }
 
     static boolean isSportsPage(Uri uri) {
-        return "https".equals(uri.getScheme()) && "embed.st".equals(uri.getHost()) &&
+        return uri != null && "https".equals(uri.getScheme()) && "embed.st".equals(uri.getHost()) &&
             (uri.getPort() == -1 || uri.getPort() == 443) && uri.getUserInfo() == null &&
             uri.getPath() != null && uri.getPath().startsWith("/embed/");
     }

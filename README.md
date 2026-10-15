@@ -13,10 +13,12 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 - Up from a Home card selects its section heading. Up/Down on headings selects other sections; Right enters the cards, and OK opens the selected section
 - Predictable D-pad navigation across poster rows and a high-contrast TV focus state
 - Native title details, TV seasons, and episode selection
+- Movie and series details show their genres beside the year, type, and rating. Known catalog genres appear immediately and are refreshed by the existing details request; missing genres are omitted, with no extra network requests or polling
 - Edge-to-edge title artwork behind the detail screen, with readable text and source buttons layered over a soft dark gradient
 - Bolt, Rift, and Fast choices directly on the title screen, before playback
 - Rift attempts native HLS/MP4 playback when it advertises a direct stream, with an embedded fallback if native playback fails. Bolt and Fast use embedded players
 - Sports listings with a native wrapper around the observed embed provider. Sports load the provider directly, without an outer iframe. A narrow compatibility fix handles embed.st's failed inline-PDF probe, which otherwise misidentifies Android WebView as a sandboxed iframe. It does not remove sandbox attributes, disable actual iframe restrictions, intercept video requests, or scan the DOM. Remote Back returns to Live Sports
+- Sports automatically attempt to start the provider's JW Player when ready. Startup uses a bounded set of checks over 20 seconds, stops after a start attempt, and never continually clicks or overrides later pauses. Flipflix's native Play button and the remote Play key can retry before video metadata exists; no pointer is needed for the initial Play screen
 - TV launcher entry, no touchscreen requirement, landscape layout
 - Playback is always fullscreen with a compact Netflix-inspired timeline and icon row. There is no separate windowed player, permanent header, or episode footer. The controls hide after **5 seconds without remote input**, even while a button has focus. Arrow or OK reveals them without accidentally activating the selected action. Menus stay open while choosing an option
 - Play/pause, back/forward 10 seconds, mute, subtitles, video quality, previous/next episode, source, retry, and Close player. Up focuses the timeline; left/right on the timeline seeks 10 seconds; Down returns to the buttons. Dedicated remote media keys also work in fullscreen
@@ -33,6 +35,8 @@ This is an educational prototype, not an official Pantyflix client. Metadata, ar
 The observed `Remove sandbox attributes on the iframe tag` warning comes from a hidden `object#sandDetect` PDF failing to load, not an iframe added by Flipflix. `sports-compat.js` only handles that exact PDF error on a top-level HTTPS `embed.st/embed/` page; real iframes, other documents, and unrelated errors are left alone. Current WebViews install the handler at document start. Older WebViews insert it into this provider's initial HTML before its scripts, preserving response security headers and leaving media traffic untouched.
 
 This fixes the false warning, not all provider/browser incompatibilities. The API 30 TV emulator's WebView 90 also fails on the provider's newer WebAssembly code, so removing the warning there does not prove live-video playback. Live playback still depends on a sufficiently current WebView, a working provider stream, and supported codecs. No WebView engine or device-wide settings are bundled or changed by this update.
+
+`sports-start.js` is limited to the same top-level sports documents. It targets JW Player's documented `jwplayer('player').play()` API, with a fallback to the observed JW display Play button inside `#player`. It never taps arbitrary screen coordinates or advertisement links. A rejected autoplay can be retried from the native Play control; provider or network failures still require Retry or another stream. The early-injection path works on old WebViews as well as those supporting document-start scripts.
 
 ## Visual styling
 
@@ -54,11 +58,11 @@ This experimental release variant is non-debuggable but signed by the local Andr
 
 `PlaybackControlsTest` runs on the Android TV emulator. It covers focused-button timeout, wake without accidental activation, D-pad seeking, menu timeout suspension, native playback/seek/mute/captions/track selection, remote Fit/Fill toggling and native crop geometry, an actual HTML video controlled and resized through the WebView message bridge, whole-card carousel pages/top-border clipping, and opening every Home heading with the remote. The fixture is test-only and is not shipped in the release APK.
 
-`SportsCompatibilityTest` checks strict URL scoping, early script ordering, suppression of only the known PDF error, and preservation of unrelated errors and iframe behavior using local deterministic fixtures.
+`SportsCompatibilityTest` checks strict URL scoping, early script ordering, suppression of only the known PDF error, and preservation of unrelated errors and iframe behavior. Startup fixtures also cover delayed JW readiness, one-shot activation, exact Play targeting without ad clicks, bounded retries, cancellation, autoplay rejection, and native Play before video metadata or bridge messages exist. These run in the emulator's real WebView with a deterministic clock; they do not claim that a third-party live stream is available.
 
 `PlayerNavigationTest` exercises the real Activity: fullscreen-only movie/TV/sports playback, single-Back return, source/menu/episode/retry navigation, native-video geometry and cleanup, provider custom fullscreen transitions, and rejection of late callbacks after closing playback.
 
-`CatalogFiltersTest` covers movie/series query parameters, saved choices, remote filter menus, focus with empty/loading/error states, filtered pagination, reset, and stale response rejection using a deterministic catalog fixture.
+`CatalogFiltersTest` covers movie/series query parameters, saved choices, remote filter menus, focus with empty/loading/error states, filtered pagination, reset, stale response rejection, and detail-screen genre metadata using a deterministic catalog fixture.
 
 ```sh
 ANDROID_HOME=/home/okonu/Android/Sdk ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest
