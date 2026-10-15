@@ -60,6 +60,9 @@ public final class PlaybackControlsTest {
     }
     private void install(PlaybackBackend backend) {
         activity = getActivity();
+        // A preceding WebView test can leave touch mode/window setup in flight.
+        // Establish a ready remote-focused surface before sending the first OK.
+        getInstrumentation().setInTouchMode(false);
         main(() -> {
             // Invalidate outstanding catalog callbacks before replacing the test surface.
             field("generation", 999999);
@@ -73,6 +76,8 @@ public final class PlaybackControlsTest {
             field("playerOverlay", controls); field("playerOpen", true);
             controls.activate();
         });
+        waitFor(() -> activity.hasWindowFocus() && controls.isLaidOut()
+            && activity.getCurrentFocus() instanceof ImageButton);
     }
     private void key(int key) { getInstrumentation().sendKeyDownUpSync(key); getInstrumentation().waitForIdleSync(); }
 

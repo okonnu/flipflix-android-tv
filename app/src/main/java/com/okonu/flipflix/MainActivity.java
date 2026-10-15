@@ -1273,6 +1273,6 @@ public final class MainActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (!hasFocus && trailerPreview != null) trailerPreview.close();
+        if (trailerPreview != null) trailerPreview.onWindowFocusChanged(hasFocus);
     }
 }

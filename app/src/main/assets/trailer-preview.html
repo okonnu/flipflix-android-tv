@@ -30,13 +30,14 @@
           playerVars:{autoplay:0,playsinline:1,controls:1,fs:0,origin:'https://com.okonu.flipflix'},
           events:{
             // Player volume only; the TV's system volume and mute remain untouched.
-            onReady:function (e) { e.target.unMute(); e.target.setVolume(100); e.target.playVideo(); },
+            onReady:function (e) { e.target.unMute(); e.target.setVolume(100); send('ready', 0); },
             onStateChange:function (e) { send('state', e.data, e.target); },
             onError:function (e) { send('error', e.data); },
             onAutoplayBlocked:function () { send('blocked', 0); }
           }
         });
         window.pauseTrailer = function () { if (player && player.pauseVideo) player.pauseVideo(); };
+        window.resumeTrailer = function () { if (player && player.playVideo) player.playVideo(); };
       };
       var script = document.createElement('script');
       script.src = 'https://www.youtube.com/iframe_api';

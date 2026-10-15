@@ -27,24 +27,32 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** One bounded, event-driven YouTube preview, owned only by the details page. */
 final class TrailerPreview {
     static final String ORIGIN = "https://com.okonu.flipflix";
     private static final long FADE_MS = 400;
+    private static final long IDLE_MS = 3000;
     private final Activity activity;
     private final FrameLayout root;
     private final View[] overlays;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final List<String> candidates = new ArrayList<>();
     private final Runnable timeout = this::restore;
+    private final Runnable idle = this::playWhenIdle;
+    private final Set<Integer> heldKeys = new HashSet<>();
     private Runnable begin;
     private WebView web;
     private TextView loading;
     private View previousFocus;
     private boolean closed;
     private boolean showing;
+    private boolean waitingForIdle;
+    private boolean playerReady;
+    private boolean windowFocused = true;
     private int wakeKey = KeyEvent.KEYCODE_UNKNOWN;
     private int candidateIndex;
     private String lastEvent = "loading";
@@ -68,10 +76,38 @@ final class TrailerPreview {
             if (closed) return;
             candidates.addAll(selectVideos(json));
             if (candidates.isEmpty()) restore();
-            else load(candidates.get(0));
+            else if (!waitingForIdle) load(candidates.get(0));
         });
-        ui.postDelayed(begin, 1500);
-        ui.postDelayed(timeout, 25000);
+        waitingForIdle = true;
+        scheduleIdle();
+    }
+
+    private void scheduleIdle() {
+        ui.removeCallbacks(idle);
+        if (!closed && !showing && windowFocused && heldKeys.isEmpty()) ui.postDelayed(idle, IDLE_MS);
+    }
+
+    private void playWhenIdle() {
+        if (closed || showing || !windowFocused || !heldKeys.isEmpty() || !activity.hasWindowFocus()) return;
+        waitingForIdle = false;
+        showLoading();
+        if (web != null) {
+            requestPlay();
+            ui.removeCallbacks(timeout);
+            ui.postDelayed(timeout, 18000);
+        } else if (!candidates.isEmpty()) load(candidates.get(candidateIndex));
+        else {
+            ui.removeCallbacks(timeout);
+            ui.postDelayed(timeout, 25000);
+            // Consume the lookup once. Interaction during its response never
+            // causes another metadata request or bypasses the idle timer.
+            if (begin != null) { Runnable lookup = begin; begin = null; lookup.run(); }
+        }
+    }
+
+    private void requestPlay() {
+        if (closed || waitingForIdle || !windowFocused || !activity.hasWindowFocus() || web == null || !playerReady) return;
+        web.evaluateJavascript("window.resumeTrailer && window.resumeTrailer()", null);
     }
 
     static List<String> selectVideos(JSONObject response) {
@@ -157,13 +193,22 @@ final class TrailerPreview {
             JSONObject event = new JSONObject(message);
             lastEvent = message;
             String type = event.optString("event");
-            if (type.equals("state")) {
+            if (type.equals("ready")) {
+                playerReady = true;
+                requestPlay();
+            } else if (type.equals("state")) {
                 int state = event.optInt("value", -1);
                 if (state == 1) {
+                    if (waitingForIdle || !windowFocused || !activity.hasWindowFocus()) {
+                        if (web != null) web.evaluateJavascript("window.pauseTrailer && window.pauseTrailer()", null);
+                        return;
+                    }
                     ui.removeCallbacks(timeout);
                     reveal();
-                } else if (state == 0 || (state == 2 && showing)) restore();
-                else if (state == 3) {
+                } else if ((state == 0 && !waitingForIdle) || (state == 2 && showing)) {
+                    pauseForInteraction();
+                    scheduleIdle();
+                } else if (state == 3 && !waitingForIdle) {
                     // A buffering event gets one bounded watchdog, never polling.
                     ui.removeCallbacks(timeout);
                     ui.postDelayed(timeout, 18000);
@@ -178,7 +223,8 @@ final class TrailerPreview {
     }
 
     private void reveal() {
-        if (showing || web == null || !activity.hasWindowFocus()) return;
+        if (showing || waitingForIdle || !windowFocused || web == null || !activity.hasWindowFocus()) return;
+        ui.removeCallbacks(idle);
         showing = true;
         previousFocus = activity.getCurrentFocus();
         web.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
@@ -198,6 +244,7 @@ final class TrailerPreview {
     boolean handleKey(KeyEvent event) {
         int key = event.getKeyCode();
         if (key == wakeKey) {
+            trackInteraction(event);
             if (event.getAction() == KeyEvent.ACTION_UP) wakeKey = KeyEvent.KEYCODE_UNKNOWN;
             return true;
         }
@@ -206,11 +253,45 @@ final class TrailerPreview {
             || key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN || key == KeyEvent.KEYCODE_MENU
             || key == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || key == KeyEvent.KEYCODE_MEDIA_PLAY || key == KeyEvent.KEYCODE_MEDIA_PAUSE
             || key == KeyEvent.KEYCODE_MEDIA_STOP || key == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || key == KeyEvent.KEYCODE_MEDIA_REWIND;
-        if (closed || !navigation || event.getAction() != KeyEvent.ACTION_DOWN) return false;
-        boolean consume = showing;
+        boolean volume = key == KeyEvent.KEYCODE_VOLUME_UP || key == KeyEvent.KEYCODE_VOLUME_DOWN || key == KeyEvent.KEYCODE_VOLUME_MUTE;
+        if (closed || (!navigation && !volume)) return false;
+        // System volume keys never dismiss a playing preview, but still count as
+        // activity while the user is looking at the details/controls.
+        if (volume && showing) return false;
+        boolean consume = navigation && showing && event.getAction() == KeyEvent.ACTION_DOWN;
         if (consume) wakeKey = key;
-        restore();
+        trackInteraction(event);
         return consume;
+    }
+
+    private void trackInteraction(KeyEvent event) {
+        if (closed) return;
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            heldKeys.add(event.getKeyCode());
+            pauseForInteraction();
+        } else if (event.getAction() == KeyEvent.ACTION_UP) {
+            heldKeys.remove(event.getKeyCode());
+            scheduleIdle();
+        }
+    }
+
+    void onWindowFocusChanged(boolean hasFocus) {
+        windowFocused = hasFocus;
+        if (closed) return;
+        if (!hasFocus) {
+            heldKeys.clear();
+            wakeKey = KeyEvent.KEYCODE_UNKNOWN;
+            pauseForInteraction();
+        } else scheduleIdle();
+    }
+
+    private void pauseForInteraction() {
+        boolean alreadyWaiting = waitingForIdle;
+        waitingForIdle = true;
+        ui.removeCallbacks(idle);
+        ui.removeCallbacks(timeout);
+        if (!alreadyWaiting || showing) showDetails(true, false);
+        else hideLoading(false);
     }
 
     void close() {
@@ -224,19 +305,34 @@ final class TrailerPreview {
     private void finish(boolean animate) {
         // Navigation/lifecycle disposal also finishes any in-progress return fade.
         // Only in-page returns crossfade; no detached WebView survives a new page.
-        boolean crossfade = animate && showing;
         closed = true;
-        showing = false;
-        if (begin != null) ui.removeCallbacks(begin);
+        begin = null;
+        heldKeys.clear();
+        ui.removeCallbacks(idle);
         ui.removeCallbacks(timeout);
+        showDetails(animate, true);
+    }
+
+    private void showDetails(boolean animate, boolean dispose) {
+        boolean wasShowing = showing;
+        boolean crossfade = animate && showing;
+        showing = false;
         if (crossfade && web != null) {
             WebView fading = web;
             fading.animate().cancel();
             fading.setKeepScreenOn(false);
+            fading.setFocusable(false);
+            fading.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             fading.evaluateJavascript("window.pauseTrailer && window.pauseTrailer()", null);
             fading.animate().alpha(0f).setDuration(FADE_MS).setInterpolator(new DecelerateInterpolator())
-                .withEndAction(() -> { if (web == fading) destroyWeb(); }).start();
-        } else destroyWeb();
+                .withEndAction(() -> { if (dispose && web == fading) destroyWeb(); }).start();
+        } else if (dispose) destroyWeb();
+        else if (web != null) {
+            web.setKeepScreenOn(false);
+            web.setFocusable(false);
+            web.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            web.evaluateJavascript("window.pauseTrailer && window.pauseTrailer()", null);
+        }
         hideLoading(animate);
         for (View overlay : overlays) {
             overlay.animate().cancel();
@@ -246,13 +342,14 @@ final class TrailerPreview {
             else overlay.setAlpha(1f);
             overlay.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         }
-        if (previousFocus != null && previousFocus.isShown()) previousFocus.requestFocus();
+        if (wasShowing && previousFocus != null && previousFocus.isShown()) previousFocus.requestFocus();
     }
 
     private void destroyWeb() {
         if (web == null) return;
         WebView old = web;
         web = null;
+        playerReady = false;
         old.animate().cancel();
         old.setKeepScreenOn(false);
         old.stopLoading();
