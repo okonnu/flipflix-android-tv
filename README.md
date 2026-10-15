@@ -16,6 +16,8 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 - Native title details, TV seasons, and episode selection
 - Movie and series details show their genres beside the year, type, and rating. Known catalog genres appear immediately and are refreshed by the existing details request; missing genres are omitted, with no extra network requests or polling
 - Edge-to-edge title artwork behind the detail screen, with readable text and source buttons layered over a soft dark gradient
+- Movie and series details automatically look up official English YouTube trailers (or teasers) using the title's TMDB ID after a short idle delay. A small bottom-right "Preview is loading..." label appears during startup. Actual YouTube PLAYING events trigger a 400ms eased crossfade from the artwork/controls to an unobstructed, muted YouTube player. No guessed buffering percentage or scrolling-card video downloads
+- Arrow, OK, Back, or a media key stops the preview and smoothly restores the artwork and controls without accidentally activating a source; the next press works normally. A trailer plays once per details visit. Missing/unavailable trailers, blocked autoplay, startup/rebuffer timeouts, and unsupported WebViews leave the normal page usable. Navigating, opening a dialog, or backgrounding the app releases the preview; system reduced-motion settings disable automatic previews
 - Bolt, Rift, and Fast choices directly on the title screen, before playback
 - Rift attempts native HLS/MP4 playback when it advertises a direct stream, with an embedded fallback if native playback fails. Bolt and Fast use embedded players
 - Sports listings with a native wrapper around the observed embed provider. Sports load the provider directly, without an outer iframe. A narrow compatibility fix handles embed.st's failed inline-PDF probe, which otherwise misidentifies Android WebView as a sandboxed iframe. It does not remove sandbox attributes, disable actual iframe restrictions, intercept video requests, or scan the DOM. Remote Back returns to Live Sports
@@ -30,6 +32,12 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 The app reads public catalog responses from `pantyflix.com` and poster images from TMDB. These are third-party services that may change or restrict access. The Anime row uses a broad animation discovery query, not the exact website anime catalog. Account features are not implemented. Native Rift playback depends on the provider continuing to expose a compatible stream and the TV supporting its codec. Embedded controls require a compatible Android System WebView and an accessible HTML video in an allowed provider frame. Nested players on other domains, DRM/custom players, or unavailable provider tracks may limit control. On older WebViews without document-start injection, the provider loads directly and the bridge attaches after the page finishes loading.
 
 This is an educational prototype, not an official Pantyflix client. Metadata, artwork, branding, and streams must be used under their respective permissions and terms before any broader distribution.
+
+### Trailer previews
+
+`TrailerPreview` uses the existing public catalog proxy's `/api/tmdb/movie/{id}/videos` or `/api/tmdb/tv/{id}/videos` response. It selects at most three deduplicated, valid YouTube IDs marked official, preferring English trailers over teasers. It never searches by title or extracts direct YouTube streams. The standard YouTube IFrame Player API retains its controls, attribution, aspect ratio, and advertisements. Branding, titles, source buttons, loading label, and both gradients disappear after playback starts; remote interaction pauses the preview before bringing app chrome back. Loading the embedded player shares playback information with YouTube; no API credentials or account login are bundled.
+
+Only the app-owned top-level HTML document at the Android application identity origin can report events through the origin-scoped message bridge; provider subframes have no native API access. Each preview has a short startup delay, bounded timeout/retries, and no polling, DOM scans, download cache, or idle work. Returning to the page after playback is a new details visit. Old WebViews without message-listener support keep artwork instead. Live availability still depends on YouTube, the catalog entries, region, and the device's WebView. Direct access to TMDB outside this prototype's existing proxy requires an appropriate API key and attribution.
 
 ### Sports compatibility notes
 
@@ -72,6 +80,8 @@ This experimental release variant is non-debuggable but signed by the local Andr
 `CatalogFiltersTest` covers movie/series query parameters, saved choices, remote filter menus, focus with empty/loading/error states, filtered pagination, reset, stale response rejection, and detail-screen genre metadata using a deterministic catalog fixture.
 
 `TvScrollingTest` checks actual intermediate scroll frames, monotonic movement, quick direction changes, whole cards at rest, simultaneous vertical/horizontal movement, heading visibility, pagination during animation, season choices, and cancellation when a screen is removed. It runs on the TV emulator with deterministic native-view fixtures.
+
+`TrailerPreviewTest` exercises the real WebView wrapper/message bridge, official trailer selection, loading label, PLAYING-gated fade, animated return, key-up/held-key consumption, focus restoration, failures/timeouts, lifecycle cleanup, and subframe-message rejection. Its optional `liveYouTubeProbe` diagnostic runs only when passed `-Pandroid.testInstrumentationRunnerArguments.liveTrailer=<YouTube ID>` and reports observed live playback separately from deterministic regression assertions.
 
 ```sh
 ANDROID_HOME=/home/okonu/Android/Sdk ANDROID_SERIAL=emulator-5554 ./gradlew connectedDebugAndroidTest

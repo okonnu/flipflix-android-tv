@@ -66,6 +66,7 @@ public final class MainActivity extends Activity {
     private TextView playerStatus;
     private FrameLayout playerScreen;
     private PlaybackControls playerOverlay;
+    private TrailerPreview trailerPreview;
     private View topAction;
     private View customVideoView;
     private WebChromeClient.CustomViewCallback customVideoCallback;
@@ -241,6 +242,7 @@ public final class MainActivity extends Activity {
     }
 
     private void shell(String title) {
+        releaseTrailerPreview();
         if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
         sourceRequest++;
@@ -704,6 +706,9 @@ public final class MainActivity extends Activity {
     }
 
     private void showDetail(Item item) {
+        android.view.inputmethod.InputMethodManager keyboard =
+            (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(root.getWindowToken(), 0);
         selected = item;
         detailOpen = true;
         playerOpen = false;
@@ -773,6 +778,8 @@ public final class MainActivity extends Activity {
             sources.addView(choice, p);
             if (i == 0) choice.requestFocus();
         }
+        trailerPreview = new TrailerPreview(this, root, shade, fade, (View) content.getParent());
+        trailerPreview.start(api, item.kind, item.id);
         int request = generation;
         api.object("/api/tmdb/" + item.kind + "/" + item.id, (json, error) -> {
             if (request != generation || json == null) return;
@@ -919,6 +926,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showPlayer(Item item, int s, int e, int source) {
+        releaseTrailerPreview();
         selected = item;
         season = s;
         episode = e;
@@ -1210,6 +1218,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (trailerPreview != null && trailerPreview.handleKey(event)) return true;
         int code = event.getKeyCode();
         // Own the complete Back press before a provider's custom video view can
         // consume it. Dialogs have their own window and still dismiss normally.
@@ -1242,6 +1251,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        releaseTrailerPreview();
         playerOpen = false;
         sourceRequest++;
         if (playerOverlay != null) playerOverlay.deactivate();
@@ -1250,5 +1260,19 @@ public final class MainActivity extends Activity {
         if (player != null) { player.stopLoading(); player.destroy(); }
         api.close();
         super.onDestroy();
+    }
+
+    private void releaseTrailerPreview() {
+        if (trailerPreview != null) { trailerPreview.close(); trailerPreview = null; }
+    }
+
+    @Override protected void onPause() {
+        releaseTrailerPreview();
+        super.onPause();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus && trailerPreview != null) trailerPreview.close();
     }
 }

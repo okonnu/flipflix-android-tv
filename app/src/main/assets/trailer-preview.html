@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>YouTube trailer preview</title>
+  <style>html,body{margin:0;width:100%;height:100%;background:#000;overflow:hidden}#player{display:block;width:100%;height:100%;border:0}</style>
+</head>
+<body>
+  <div id="player"></div>
+  <script>
+    (function () {
+      'use strict';
+      function send(event, value) {
+        if (window.FlipflixTrailer) window.FlipflixTrailer.postMessage(JSON.stringify({event:event,value:value}));
+      }
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        send('reduced-motion', 0);
+        return;
+      }
+      window.onYouTubeIframeAPIReady = function () {
+        var player = new YT.Player('player', {
+          width:'100%', height:'100%', videoId:'__VIDEO_ID__',
+          playerVars:{autoplay:0,playsinline:1,controls:1,fs:0,origin:'https://com.okonu.flipflix'},
+          events:{
+            onReady:function (e) { e.target.mute(); e.target.playVideo(); },
+            onStateChange:function (e) { send('state', e.data); },
+            onError:function (e) { send('error', e.data); },
+            onAutoplayBlocked:function () { send('blocked', 0); }
+          }
+        });
+        window.pauseTrailer = function () { if (player && player.pauseVideo) player.pauseVideo(); };
+      };
+      var script = document.createElement('script');
+      script.src = 'https://www.youtube.com/iframe_api';
+      script.async = true;
+      script.onerror = function () { send('error', 0); };
+      document.head.appendChild(script);
+    }());
+  </script>
+</body>
+</html>
