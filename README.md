@@ -9,7 +9,7 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 - Native playback source selector with three observed movie/TV hosts: Bolt, Fast, and Rift
 - Sports listings with a native wrapper around the observed embed provider
 - TV launcher entry, no touchscreen requirement, landscape layout
-- Embedded playback stays in the video area; pop-up windows and top-level off-site navigation are suppressed
+- Playback opens fullscreen. Remote Back restores the native source and episode controls without restarting the video; Back again returns to the title. Pop-up windows and top-level off-site navigation are suppressed
 
 The app reads public catalog responses from `pantyflix.com` and poster images from TMDB. These are third-party services that may change or restrict access. The Anime screen uses a broad animation discovery query, not the exact website anime catalog. My Space account features are not implemented. Playback availability and D-pad support inside the embedded provider are outside this app's control.
 

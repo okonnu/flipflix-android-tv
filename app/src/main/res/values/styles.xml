@@ -1,6 +1,5 @@
 <resources>
     <style name="FlipflixTheme" parent="android:style/Theme.Material.NoActionBar">
-        <item name="android:windowLightStatusBar">false</item>
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#18B8ED</item>
         <item name="android:navigationBarColor">#080B10</item>

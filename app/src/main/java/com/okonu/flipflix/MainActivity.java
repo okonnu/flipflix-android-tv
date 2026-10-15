@@ -42,6 +42,13 @@ public final class MainActivity extends Activity {
     private FrameLayout root;
     private LinearLayout content;
     private WebView player;
+    private LinearLayout playerScreen;
+    private View playerBar;
+    private View playerBackButton;
+    private View episodeControls;
+    private View customVideoView;
+    private WebChromeClient.CustomViewCallback customVideoCallback;
+    private boolean playerFullscreen;
     private Item selected;
     private String section = "Home";
     private boolean detailOpen;
@@ -119,6 +126,9 @@ public final class MainActivity extends Activity {
     }
 
     private void shell(String title) {
+        clearCustomVideoView();
+        playerFullscreen = false;
+        getWindow().getDecorView().setSystemUiVisibility(0);
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
         LinearLayout entire = row();
@@ -425,15 +435,18 @@ public final class MainActivity extends Activity {
         playerOpen = true;
         detailOpen = !item.kind.equals("sport");
         generation++;
+        clearCustomVideoView();
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        LinearLayout screen = column();
-        screen.setPadding(dp(18), dp(12), dp(18), dp(10));
-        root.addView(screen, new FrameLayout.LayoutParams(-1, -1));
+        playerScreen = column();
+        playerScreen.setPadding(dp(18), dp(12), dp(18), dp(10));
+        root.addView(playerScreen, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout bar = row();
-        screen.addView(bar, new LinearLayout.LayoutParams(-1, dp(58)));
+        playerBar = bar;
+        playerScreen.addView(bar, new LinearLayout.LayoutParams(-1, dp(58)));
         Button back = button("Back", () -> onBackPressed());
+        playerBackButton = back;
         bar.addView(back, new LinearLayout.LayoutParams(dp(100), dp(52)));
         TextView title = text("  " + item.title + (item.kind.equals("tv") ? "  S" + s + " E" + e : ""), 20, WHITE, true);
         bar.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
@@ -447,6 +460,8 @@ public final class MainActivity extends Activity {
             })
             .show());
         bar.addView(sources, new LinearLayout.LayoutParams(dp(180), dp(50)));
+        Button fullscreen = button("Fullscreen", this::enterPlayerFullscreen);
+        bar.addView(fullscreen, new LinearLayout.LayoutParams(dp(135), dp(50)));
         player = new WebView(this);
         player.setBackgroundColor(Color.BLACK);
         player.setFocusable(true);
@@ -457,6 +472,16 @@ public final class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(player, true);
         player.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
+            @Override public void onShowCustomView(View view, CustomViewCallback callback) {
+                if (customVideoView != null) { callback.onCustomViewHidden(); return; }
+                customVideoView = view;
+                customVideoCallback = callback;
+                playerScreen.setVisibility(View.GONE);
+                root.addView(view, new FrameLayout.LayoutParams(-1, -1));
+                enterPlayerFullscreen();
+                view.requestFocus();
+            }
+            @Override public void onHideCustomView() { clearCustomVideoView(); }
         });
         player.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -465,15 +490,47 @@ public final class MainActivity extends Activity {
                 return host == null || !(host.equals("pantyflix.com") || host.equals("vidbolt.xyz") || host.equals("bingr.one") || host.equals("embed.vidrift.in") || host.equals("embed.st"));
             }
         });
-        screen.addView(player, new LinearLayout.LayoutParams(-1, 0, 1));
+        playerScreen.addView(player, new LinearLayout.LayoutParams(-1, 0, 1));
         loadEmbed(item, 0, s, e);
         if (item.kind.equals("tv")) {
             LinearLayout controls = row();
-            screen.addView(controls, new LinearLayout.LayoutParams(-1, dp(56)));
+            episodeControls = controls;
+            playerScreen.addView(controls, new LinearLayout.LayoutParams(-1, dp(56)));
             controls.addView(button("Previous episode", () -> showPlayer(item, s, Math.max(1, e - 1))), new LinearLayout.LayoutParams(dp(210), dp(50)));
             controls.addView(button("Next episode", () -> showPlayer(item, s, e + 1)), new LinearLayout.LayoutParams(dp(190), dp(50)));
+        } else episodeControls = null;
+        enterPlayerFullscreen();
+        player.requestFocus();
+    }
+
+    private void enterPlayerFullscreen() {
+        playerFullscreen = true;
+        if (playerBar != null) playerBar.setVisibility(View.GONE);
+        if (episodeControls != null) episodeControls.setVisibility(View.GONE);
+        if (playerScreen != null) playerScreen.setPadding(0, 0, 0, 0);
+        getWindow().getDecorView().setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+    }
+
+    private void clearCustomVideoView() {
+        if (customVideoView == null) return;
+        root.removeView(customVideoView);
+        customVideoView = null;
+        if (customVideoCallback != null) {
+            customVideoCallback.onCustomViewHidden();
+            customVideoCallback = null;
         }
-        back.requestFocus();
+        if (playerScreen != null) playerScreen.setVisibility(View.VISIBLE);
+    }
+
+    private void exitPlayerFullscreen() {
+        clearCustomVideoView();
+        playerFullscreen = false;
+        getWindow().getDecorView().setSystemUiVisibility(0);
+        if (playerScreen != null) playerScreen.setPadding(dp(18), dp(12), dp(18), dp(10));
+        if (playerBar != null) playerBar.setVisibility(View.VISIBLE);
+        if (episodeControls != null) episodeControls.setVisibility(View.VISIBLE);
+        if (playerBackButton != null) playerBackButton.requestFocus();
     }
 
     private void loadEmbed(Item item, int source, int s, int e) {
@@ -487,7 +544,9 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (playerOpen) {
+        if (playerOpen && playerFullscreen) {
+            exitPlayerFullscreen();
+        } else if (playerOpen) {
             playerOpen = false;
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             if (selected != null && !selected.kind.equals("sport")) showDetail(selected); else openSection("Sports");
@@ -502,6 +561,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        clearCustomVideoView();
         if (player != null) { player.stopLoading(); player.destroy(); }
         api.close();
         super.onDestroy();
