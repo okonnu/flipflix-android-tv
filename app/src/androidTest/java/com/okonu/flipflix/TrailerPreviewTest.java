@@ -106,7 +106,8 @@ public final class TrailerPreviewTest {
                             new ByteArrayInputStream(child.getBytes(StandardCharsets.UTF_8)));
                     }
                     String script = "window.fixtureEvents=null;window.fixtureCalls=[];window.YT={Player:function(id,opts){"
-                        + "window.fixtureEvents=opts.events;var p={mute:function(){fixtureCalls.push('mute')},"
+                        + "window.fixtureEvents=opts.events;var p={unMute:function(){fixtureCalls.push('unmute')},"
+                        + "setVolume:function(v){fixtureCalls.push('volume:'+v)},"
                         + "playVideo:function(){fixtureCalls.push('play')}};opts.events.onReady({target:p});}};"
                         + "window.onYouTubeIframeAPIReady();";
                     return new WebResourceResponse("application/javascript", "UTF-8",
@@ -117,10 +118,11 @@ public final class TrailerPreviewTest {
         await(() -> rule.getActivity().hasWindowFocus());
         AtomicBoolean ready = new AtomicBoolean(); long deadline = SystemClock.uptimeMillis() + 6000;
         while (!ready.get() && SystemClock.uptimeMillis() < deadline) {
-            main(() -> web.evaluateJavascript("JSON.stringify(window.fixtureCalls)", result -> ready.set(result.contains("play"))));
+            main(() -> web.evaluateJavascript("JSON.stringify(window.fixtureCalls) === JSON.stringify(['unmute','volume:100','play'])",
+                result -> ready.set("true".equals(result))));
             SystemClock.sleep(50);
         }
-        assertTrue("Real wrapper initializes the API and asks for muted playback", ready.get());
+        assertTrue("Real wrapper unmutes and sets player volume before playback", ready.get());
     }
     private void state(int value) {
         main(() -> web.evaluateJavascript("fixtureEvents.onStateChange({data:" + value + "})", null));
@@ -156,6 +158,18 @@ public final class TrailerPreviewTest {
             assertTrue(preview.handleKey(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK)));
             assertFalse(preview.handleKey(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK)));
             assertEquals(0, clicks.get());
+        });
+    }
+
+    @Test public void volumeKeysStayWithTheTvAndDoNotDismissPreview() {
+        fixture(); shown();
+        main(() -> {
+            for (int key : new int[]{KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_VOLUME_MUTE}) {
+                assertFalse(preview.handleKey(new KeyEvent(KeyEvent.ACTION_DOWN, key)));
+                assertFalse(preview.handleKey(new KeyEvent(KeyEvent.ACTION_UP, key)));
+            }
+            assertTrue((boolean) field(preview, "showing"));
+            assertFalse((boolean) field(preview, "closed"));
         });
     }
 
@@ -245,6 +259,17 @@ public final class TrailerPreviewTest {
         }
         main(() -> android.util.Log.i("TrailerLiveProbe", "showing=" + field(preview, "showing")
             + " closed=" + field(preview, "closed") + " lastEvent=" + field(preview, "lastEvent")));
+        if ("true".equals(InstrumentationRegistry.getArguments().getString("requireLiveAudio"))) {
+            main(() -> {
+                assertTrue("Live YouTube preview starts playing", (boolean) field(preview, "showing"));
+                try {
+                    JSONObject event = new JSONObject((String) field(preview, "lastEvent"));
+                    assertEquals(1, event.getInt("value"));
+                    assertFalse("YouTube reports sound enabled", event.getBoolean("muted"));
+                    assertEquals(100, event.getInt("volume"));
+                } catch (org.json.JSONException error) { throw new AssertionError(error); }
+            });
+        }
     }
 
     @After public void cleanup() { if (preview != null) main(preview::close); }
