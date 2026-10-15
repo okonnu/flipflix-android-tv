@@ -20,9 +20,9 @@ This is an educational prototype, not an official Pantyflix client. Metadata, ar
 The shared SDK is `/home/okonu/Android/Sdk`. No SDK copy is stored in this project.
 
 ```sh
-ANDROID_HOME=/home/okonu/Android/Sdk ./gradlew assembleDebug
+ANDROID_HOME=/home/okonu/Android/Sdk ./gradlew assembleRelease
 ```
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`
+APK: `app/build/outputs/apk/release/app-release.apk`
 
-The debug APK is signed by the local Android debug key. It is intended for sideload testing, not release distribution.
+This experimental release variant is non-debuggable but signed by the local Android debug key. Keep that key for installable updates; a production app should use a dedicated release key. GitHub releases use the asset name `Flipflix.apk`, allowing a stable `/releases/latest/download/Flipflix.apk` download URL.
