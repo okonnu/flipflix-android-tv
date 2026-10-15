@@ -815,6 +815,7 @@ public final class MainActivity extends Activity {
         player.getSettings().setSupportMultipleWindows(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(player, true);
         embeddedPlayer = new EmbeddedPlayback(player);
+        final SportsEmbedCompat sportsCompat = item.kind.equals("sport") ? new SportsEmbedCompat(player) : null;
         player.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
             @Override public void onShowCustomView(View view, CustomViewCallback callback) {
@@ -829,6 +830,9 @@ public final class MainActivity extends Activity {
             @Override public void onHideCustomView() { clearCustomVideoView(); }
         });
         player.setWebViewClient(new WebViewClient() {
+            @Override public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                return sportsCompat == null ? null : sportsCompat.intercept(request);
+            }
             @Override public void onPageFinished(WebView view, String url) {
                 if (view == player && embeddedPlayer != null) embeddedPlayer.pageFinished();
             }
@@ -969,7 +973,7 @@ public final class MainActivity extends Activity {
         String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'></head>" +
             "<body style='margin:0;background:#000;overflow:hidden'><iframe title='Video' src='" + url +
             "' allow='autoplay;fullscreen;picture-in-picture' allowfullscreen style='border:0;width:100vw;height:100vh'></iframe></body></html>";
-        if (embeddedPlayer != null && embeddedPlayer.documentStart) {
+        if (!item.kind.equals("sport") && embeddedPlayer != null && embeddedPlayer.documentStart) {
             player.loadDataWithBaseURL("https://pantyflix.com/", html, "text/html", "UTF-8", null);
         } else player.loadUrl(url);
         revealPlayerOverlay(false);
@@ -1081,7 +1085,7 @@ public final class MainActivity extends Activity {
         } else if (playerOpen) {
             playerOpen = false;
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            if (selected != null && !selected.kind.equals("sport")) showDetail(selected); else openSection("Sports");
+            if (selected != null && !selected.kind.equals("sport")) showDetail(selected); else openSection("Live Sports");
         } else if (detailOpen) openSection(section);
         else if (!section.equals("Home")) openSection("Home");
         else super.onBackPressed();
