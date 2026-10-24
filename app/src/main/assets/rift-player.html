@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}iframe{width:100%;height:100%;border:0;display:block}</style>
+</head><body><iframe id="rift" title="Rift video player" allow="autoplay;fullscreen;picture-in-picture" allowfullscreen></iframe>
+<script>
+(function () {
+    'use strict';
+    var config = __RIFT_CONFIG__;
+    var frame = document.getElementById('rift');
+    var origin = new URL(config.url).origin;
+    function send(data) { frame.contentWindow.postMessage(data, origin); }
+    function report(data) {
+        if (window.FlipflixRift) window.FlipflixRift.postMessage(JSON.stringify({session:config.session,event:data}));
+    }
+    // Tuple comparison also works on older Fire TV WebViews without Origin API.
+    function trusted(event) {
+        if (event.source !== frame.contentWindow || event.origin === 'null') return false;
+        try { return new URL(event.origin).origin === origin; } catch (_) { return false; }
+    }
+    window.addEventListener('message', function (event) {
+        if (!trusted(event)) return;
+        var data = event.data;
+        if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
+        if (String(data.tmdbId) !== String(config.id) || data.mediaType !== config.kind) return;
+        if (config.kind === 'tv' && (Number(data.season) !== config.season || Number(data.episode) !== config.episode)) return;
+        if (['vidrift:state','vidrift:progress','vidrift:paused','vidrift:unpaused',
+             'vidrift:ended','vidrift:command-error','vidrift:exit','vidrift:fullscreen'].indexOf(data.type) < 0) return;
+        if (data.type === 'vidrift:fullscreen') send({type:'vidrift:fullscreen-state',on:true});
+        else report(data);
+    });
+    window.riftCommand = function (session, data) {
+        if (session === config.session) send(data);
+    };
+    frame.onload = function () {
+        send({type:'vidrift:get-state'});
+        // Flipflix owns episode navigation; do not let an iframe silently change identity.
+        send({type:'vidrift:nextup-info',next:null});
+        send({type:'vidrift:fullscreen-state',on:true});
+    };
+    frame.src = config.url;
+}());
+</script></body></html>

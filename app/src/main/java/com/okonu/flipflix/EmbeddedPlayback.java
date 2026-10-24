@@ -23,6 +23,9 @@ final class EmbeddedPlayback implements PlaybackBackend {
     private final boolean messaging;
 
     EmbeddedPlayback(WebView view) {
+        this(view, true);
+    }
+    EmbeddedPlayback(WebView view, boolean includeRift) {
         webView = view;
         messaging = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER);
         documentStart = messaging && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT);
@@ -35,6 +38,7 @@ final class EmbeddedPlayback implements PlaybackBackend {
         } catch (Exception ignored) { return; }
         Set<String> origins = new HashSet<>(Arrays.asList("https://vidbolt.xyz", "https://*.vidbolt.xyz",
             "https://bingr.one", "https://*.bingr.one", "https://embed.vidrift.in", "https://embed.st"));
+        if (!includeRift) origins.remove("https://embed.vidrift.in");
         WebViewCompat.addWebMessageListener(view, "FlipflixPlayback", origins, (v, message, origin, mainFrame, reply) -> {
             String data = message.getData();
             if (data == null || data.length() > 65536) return;

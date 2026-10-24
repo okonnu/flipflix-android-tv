@@ -17,6 +17,9 @@ interface PlaybackBackend {
         long position, duration;
         final List<Option> subtitles = new ArrayList<>();
         final List<Option> qualities = new ArrayList<>();
+        // Optional provider-owned choices, refreshed atomically with each state event.
+        final java.util.Map<String, List<Option>> settings = new java.util.LinkedHashMap<>();
+        boolean providerControls;
     }
     State state();
     void command(String name, String value);

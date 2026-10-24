@@ -7,8 +7,9 @@ android {
         applicationId "com.okonu.flipflix"
         minSdk 22
         targetSdk 33
-        versionCode 18
-        versionName "0.1.17"
+        versionCode 19
+        versionName "0.1.18"
+        manifestPlaceholders = [appLabel: "Flipflix"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -16,6 +17,13 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     buildTypes {
+        debug {
+            // Physical-TV regression tests must not touch the viewer's real app data.
+            if (project.hasProperty("isolatedTvTest")) {
+                applicationIdSuffix ".validation"
+                manifestPlaceholders = [appLabel: "Flipflix Test"]
+            }
+        }
         release {
             signingConfig signingConfigs.debug
             minifyEnabled false

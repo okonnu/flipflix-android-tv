@@ -167,6 +167,23 @@ public final class PlayerNavigationTest {
         select("Close player"); main(() -> assertClosed(false));
     }
 
+    @Test public void riftUsesOfficialBridgeAndBackLeavesProviderControlsFirst() throws Exception {
+        Object item = item("tv");
+        main(() -> {
+            invoke("showPlayer", item, 2, 3, 1);
+            stopEmbedNetwork();
+            assertNotNull(field(activity(), "riftPlayer"));
+            assertNull("Do not discard Rift servers/audio by scraping one native URL", field(activity(), "nativePlayer"));
+            invoke("useProviderControls");
+            assertEquals(true, field(activity(), "providerInput"));
+            assertEquals(View.GONE, ((View) field(activity(), "playerOverlay")).getVisibility());
+        });
+        key(KeyEvent.KEYCODE_BACK);
+        main(() -> { assertEquals(false, field(activity(), "providerInput")); assertFullscreen(); });
+        key(KeyEvent.KEYCODE_BACK);
+        main(() -> { assertClosed(false); assertNull(field(activity(), "riftPlayer")); });
+    }
+
     @Test public void nativeVideoFillsThePlayerAndIsReleasedOnBack() throws Exception {
         Object item = item("movie"); start(item);
         File fixture = new File(activity().getCacheDir(), "navigation-video.mp4");
@@ -178,7 +195,7 @@ public final class PlayerNavigationTest {
         NativePlayback[] nativeVideo = new NativePlayback[1];
         main(() -> {
             ((WebView) field(activity(), "player")).setVisibility(View.GONE);
-            invoke("playNativeRift", item, 1, 2, 3, fixture.toURI().toString(), "https://example.com/", null, field(activity(), "sourceRequest"));
+            invoke("playNativeVideo", item, 1, 2, 3, fixture.toURI().toString(), "https://example.com/", null, field(activity(), "sourceRequest"));
             nativeVideo[0] = (NativePlayback) field(activity(), "nativePlayer");
         });
         AtomicBoolean ready = new AtomicBoolean(); long deadline = SystemClock.uptimeMillis() + 12000;

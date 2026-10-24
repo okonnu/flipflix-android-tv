@@ -66,6 +66,9 @@ public final class MainActivity extends Activity {
     private WebView player;
     private NativePlayback nativePlayer;
     private EmbeddedPlayback embeddedPlayer;
+    private RiftPlayback riftPlayer;
+    private boolean providerInput;
+    private int providerReturnKey = -1;
     private TextView playerStatus;
     private FrameLayout playerScreen;
     private PlaybackControls playerOverlay;
@@ -262,6 +265,7 @@ public final class MainActivity extends Activity {
         loadMoreButton = null;
         topAction = null;
         getWindow().getDecorView().setSystemUiVisibility(0);
+        releaseRiftPlayer();
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         embeddedPlayer = null;
         playerScreen = null;
@@ -1085,6 +1089,7 @@ public final class MainActivity extends Activity {
         sourceRequest++;
         if (playerOverlay != null) { playerOverlay.deactivate(); playerOverlay = null; }
         releaseNativePlayer();
+        releaseRiftPlayer();
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -1103,7 +1108,7 @@ public final class MainActivity extends Activity {
         player.getSettings().setMediaPlaybackRequiresUserGesture(false);
         player.getSettings().setSupportMultipleWindows(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(player, true);
-        embeddedPlayer = new EmbeddedPlayback(player);
+        embeddedPlayer = new EmbeddedPlayback(player, !RiftPlayback.supported());
         final SportsEmbedCompat sportsCompat = item.kind.equals("sport") ? new SportsEmbedCompat(player) : null;
         player.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
@@ -1126,10 +1131,11 @@ public final class MainActivity extends Activity {
                 return sportsCompat == null ? null : sportsCompat.intercept(request);
             }
             @Override public void onPageFinished(WebView view, String url) {
-                if (view == player && embeddedPlayer != null) embeddedPlayer.pageFinished();
+                if (view == player && embeddedPlayer != null && riftPlayer == null) embeddedPlayer.pageFinished();
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
+                if (riftPlayer != null) return true;
                 String host = request.getUrl().getHost();
                 return host == null || !(host.equals("pantyflix.com") || host.equals("vidbolt.xyz") || host.equals("bingr.one") || host.equals("embed.vidrift.in") || host.equals("embed.st"));
             }
@@ -1152,7 +1158,7 @@ public final class MainActivity extends Activity {
 
     private void buildPlayerOverlay(Item item) {
         String title = item.title + (item.kind.equals("tv") ? "  |  S" + season + " E" + episode : "");
-        playerOverlay = new PlaybackControls(this, () -> nativePlayer != null ? nativePlayer : embeddedPlayer,
+        playerOverlay = new PlaybackControls(this, () -> nativePlayer != null ? nativePlayer : riftPlayer != null ? riftPlayer : embeddedPlayer,
             this::focusVideo, title,
             item.kind.equals("tv") ? () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex) : null,
             item.kind.equals("tv") ? () -> showPlayer(item, season, episode + 1, currentSourceIndex) : null,
@@ -1181,6 +1187,7 @@ public final class MainActivity extends Activity {
         int request = ++sourceRequest;
         if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source]);
         releaseNativePlayer();
+        releaseRiftPlayer();
         if (embeddedPlayer != null) embeddedPlayer.reset();
         if (player != null) { player.stopLoading(); player.loadUrl("about:blank"); player.setVisibility(View.GONE); }
         if (playerStatus != null) {
@@ -1188,27 +1195,33 @@ public final class MainActivity extends Activity {
             playerStatus.setVisibility(View.VISIBLE);
         }
         if (item.kind.equals("sample")) {
-            NativePlayback video = new NativePlayback(this, item.sampleUrl, "https://media.w3.org/", null);
-            nativePlayer = video; playerScreen.addView(video.view, 0, new FrameLayout.LayoutParams(-1, -1));
-            playerStatus.setVisibility(View.GONE);
-            video.player.addListener(new Player.Listener() {
-                @Override public void onPlayerError(PlaybackException error) {
-                    if (nativePlayer == video) { playerStatus.setText("Trailer unavailable. Press Back to return."); playerStatus.setVisibility(View.VISIBLE); }
-                }
-            }); video.start(); return;
+            playNativeVideo(item, source, s, e, item.sampleUrl, "https://media.w3.org/", null, request);
+            return;
         }
-        if (source == 1 && !item.kind.equals("sport")) {
-            String embed = sourceUrl(item, source, s, e);
-            api.riftStream(embed, (stream, captions, error) -> {
-                if (request != sourceRequest || !playerOpen) return;
-                if (error != null || stream == null) { loadEmbed(item, source, s, e); return; }
-                playNativeRift(item, source, s, e, stream, embed, captions, request);
-            });
+        if (source == 1 && !item.kind.equals("sport") && RiftPlayback.supported()) {
+            riftPlayer = new RiftPlayback(player,
+                message -> android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show(),
+                this::useProviderControls, this::closePlayer);
+            player.setVisibility(View.VISIBLE); playerStatus.setVisibility(View.GONE);
+            riftPlayer.load(sourceUrl(item, source, s, e), item.id, item.kind, s, e);
+            revealPlayerOverlay(false);
         } else loadEmbed(item, source, s, e);
     }
 
+    private void useProviderControls() {
+        providerInput = true;
+        if (playerOverlay != null) playerOverlay.deactivate();
+        focusVideo();
+        android.widget.Toast.makeText(this, "Rift controls: use arrows and OK. Back or Menu returns to Flipflix controls.", android.widget.Toast.LENGTH_LONG).show();
+    }
+
+    private void releaseRiftPlayer() {
+        if (riftPlayer != null) { riftPlayer.close(); riftPlayer = null; }
+        providerInput = false;
+    }
+
     @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
-    private void playNativeRift(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
+    private void playNativeVideo(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
         NativePlayback video = new NativePlayback(this, stream, referer, captions);
         nativePlayer = video;
         playerScreen.addView(video.view, 0, new FrameLayout.LayoutParams(-1, -1));
@@ -1216,6 +1229,11 @@ public final class MainActivity extends Activity {
         video.player.addListener(new Player.Listener() {
             @Override public void onPlayerError(PlaybackException error) {
                 if (request == sourceRequest && nativePlayer == video) {
+                    if (item.kind.equals("sample")) {
+                        playerStatus.setText("Trailer unavailable. Press Back to return.");
+                        playerStatus.setVisibility(View.VISIBLE);
+                        return;
+                    }
                     releaseNativePlayer();
                     loadEmbed(item, source, s, e);
                 }
@@ -1377,6 +1395,20 @@ public final class MainActivity extends Activity {
         if (discovery != null && discovery.handleKey(event)) return true;
         if (trailerPreview != null && trailerPreview.handleKey(event)) return true;
         int code = event.getKeyCode();
+        if (code == providerReturnKey) {
+            if (event.getAction() == KeyEvent.ACTION_UP) providerReturnKey = -1;
+            return true;
+        }
+        if (playerOpen && providerInput) {
+            if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    providerInput = false; providerReturnKey = code;
+                    if (playerOverlay != null) playerOverlay.activate();
+                }
+                return true;
+            }
+            return super.dispatchKeyEvent(event);
+        }
         // Own the complete Back press before a provider's custom video view can
         // consume it. Dialogs have their own window and still dismiss normally.
         if (code == KeyEvent.KEYCODE_BACK && (playerOpen || playerBackKeyDown)) {
@@ -1433,6 +1465,7 @@ public final class MainActivity extends Activity {
         if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
         releaseNativePlayer();
+        releaseRiftPlayer();
         if (player != null) { player.stopLoading(); player.destroy(); }
         api.close();
         super.onDestroy();
@@ -1444,6 +1477,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onPause() {
         releaseTrailerPreview();
+        if (riftPlayer != null) riftPlayer.command("pause", "");
         if (discovery != null) discovery.setActive(false);
         super.onPause();
     }

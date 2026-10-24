@@ -125,6 +125,53 @@ public final class PlaybackControlsTest {
         assertEquals("Other providers keep their readiness check", sent, backend.commands);
     }
 
+    @Test public void testHeldSeekAcceleratesAndKeyUpDoesNotSeekAgain() {
+        FakeBackend backend = new FakeBackend(); backend.s.duration = 3600000; backend.s.position = 1000000; install(backend);
+        main(() -> {
+            // Exercise real KeyEvent repeats through the Activity. A held OK on
+            // the seek icon must not also produce the normal click on key-up.
+            controls.handleKey(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT));
+            controls.handleKey(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT));
+        });
+        long start = SystemClock.uptimeMillis();
+        for (int i = 0; i <= 7; i++) {
+            int repeat = i;
+            main(() -> activity.dispatchKeyEvent(new KeyEvent(start, SystemClock.uptimeMillis(), KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, repeat)));
+            SystemClock.sleep(200);
+        }
+        int sent = backend.commands;
+        assertTrue("Holding accelerates beyond eight 10s steps", backend.s.position < 920000);
+        main(() -> activity.dispatchKeyEvent(new KeyEvent(start, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER, 0)));
+        assertEquals(sent, backend.commands);
+        main(() -> backend.s.position = 1000000);
+        SystemClock.sleep(1000);
+        key(KeyEvent.KEYCODE_MEDIA_FAST_FORWARD);
+        assertEquals("1010000", backend.value);
+        main(() -> controls.sourceName("Rift"));
+        key(KeyEvent.KEYCODE_MEDIA_REWIND);
+        assertEquals("1000000", backend.value);
+    }
+
+    @Test public void testRiftSettingsAreRemoteReachableAndMenusKeepControlsVisible() {
+        FakeBackend backend = new FakeBackend();
+        backend.s.settings.put("audio", java.util.Arrays.asList(new PlaybackBackend.Option("en","English",true), new PlaybackBackend.Option("ko","Korean",false)));
+        install(backend);
+        main(() -> {
+            ViewGroup actions = (ViewGroup) activity.getCurrentFocus().getParent();
+            for (int i = 0; i < actions.getChildCount(); i++) {
+                View button = actions.getChildAt(i);
+                if ("Playback settings".contentEquals(button.getContentDescription() == null ? "" : button.getContentDescription())) button.requestFocus();
+            }
+        });
+        key(KeyEvent.KEYCODE_DPAD_CENTER);
+        SystemClock.sleep(300);
+        key(KeyEvent.KEYCODE_DPAD_CENTER); // Audio language.
+        SystemClock.sleep(300);
+        key(KeyEvent.KEYCODE_DPAD_DOWN); key(KeyEvent.KEYCODE_DPAD_CENTER);
+        assertEquals("audio", backend.last); assertEquals("ko", backend.value);
+        main(() -> { assertEquals(View.VISIBLE, controls.getVisibility()); assertTrue(activity.getCurrentFocus() instanceof ImageButton); });
+    }
+
     @Test public void testNativePlaybackSeekMuteCaptionsAndQuality() throws Exception {
         activity = getActivity();
         File movie = copyAsset("silent-black-25s.mp4");

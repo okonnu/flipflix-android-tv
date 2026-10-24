@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -31,12 +32,15 @@ final class PlaybackControls extends LinearLayout {
     private final List<ImageButton> buttons = new ArrayList<>();
     private final SeekBar timeline;
     private final TextView time, hint;
-    private final ImageButton play, mute, source, resize;
+    private final ImageButton play, mute, source, resize, rewind, forward;
+    private final SeekAccelerator seeking = new SeekAccelerator();
+    private AlertDialog settingsDialog;
     private boolean active, menuOpen, scrubbing;
     private int wakeKey = -1, lastButton;
     private final Runnable hide = this::hideControls;
     private void hideControls() {
         if (active && !menuOpen) {
+            seeking.reset();
             setVisibility(GONE);
             focusVideo.run();
         }
@@ -63,7 +67,7 @@ final class PlaybackControls extends LinearLayout {
         LinearLayout progress = row();
         addView(progress, new LayoutParams(-1, dp(40)));
         timeline = new SeekBar(activity);
-        timeline.setContentDescription("Playback position. Left or right seeks 10 seconds.");
+        timeline.setContentDescription("Playback position. Hold left or right to seek faster.");
         timeline.setMax(10000);
         timeline.setProgressTintList(ColorStateList.valueOf(AppStyle.ACCENT));
         timeline.setProgressBackgroundTintList(ColorStateList.valueOf(AppStyle.BORDER));
@@ -72,13 +76,13 @@ final class PlaybackControls extends LinearLayout {
         timeline.setPadding(dp(8), 0, dp(8), 0);
         timeline.setOnFocusChangeListener((v, focused) -> {
             timeline.setBackground(focused ? shape(0x30ffffff, Color.WHITE) : null);
-            if (focused) hint.setText("Left / right: seek 10 seconds   |   Down: playback controls");
+            if (focused) hint.setText("Left / right: seek. Keep pressing to speed up. Down: controls");
         });
         timeline.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int value, boolean user) {
                 if (user) time.setText(format(state().duration * value / 10000) + " / " + format(state().duration));
             }
-            @Override public void onStartTrackingTouch(SeekBar bar) { scrubbing = true; handler.removeCallbacks(hide); }
+            @Override public void onStartTrackingTouch(SeekBar bar) { seeking.reset(); scrubbing = true; handler.removeCallbacks(hide); }
             @Override public void onStopTrackingTouch(SeekBar bar) {
                 scrubbing = false;
                 send("seek", String.valueOf(state().duration * bar.getProgress() / 10000));
@@ -92,8 +96,8 @@ final class PlaybackControls extends LinearLayout {
         LinearLayout actions = row();
         addView(actions, new LayoutParams(-1, dp(52)));
         play = icon(actions, "Pause", "pause", () -> send("toggle", ""));
-        icon(actions, "Back 10 seconds", "rewind", () -> seekBy(-10000));
-        icon(actions, "Forward 10 seconds", "forward", () -> seekBy(10000));
+        rewind = icon(actions, "Back 10 seconds", "rewind", () -> seekBy(-1));
+        forward = icon(actions, "Forward 10 seconds", "forward", () -> seekBy(1));
         mute = icon(actions, "Mute", "volume", () -> send("mute", ""));
         TextView name = label(title, 15);
         name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END);
@@ -103,6 +107,7 @@ final class PlaybackControls extends LinearLayout {
         if (next != null) icon(actions, "Next episode", "next", next);
         icon(actions, "Subtitles", "subtitles", () -> options(false));
         icon(actions, "Video quality", "quality", () -> options(true));
+        icon(actions, "Playback settings", "settings", this::settings);
         source = icon(actions, "Choose source", "source", sourceAction);
         icon(actions, "Retry playback", "retry", retry);
         resize = icon(actions, "Fill screen (crop edges)", "fill", this::toggleResize);
@@ -137,10 +142,13 @@ final class PlaybackControls extends LinearLayout {
         LayoutParams p = new LayoutParams(dp(46), dp(46)); p.rightMargin = dp(3);
         row.addView(b, p); buttons.add(b); return b;
     }
-    void sourceName(String name) { source.setContentDescription("Source: " + name); }
+    void sourceName(String name) { seeking.reset(); source.setContentDescription("Source: " + name); }
     void activate() { active = true; show(true); }
-    void deactivate() { active = false; handler.removeCallbacksAndMessages(null); setVisibility(GONE); }
-    void suspendForMenu() { menuOpen = true; handler.removeCallbacks(hide); }
+    void deactivate() {
+        active = false; seeking.reset(); handler.removeCallbacksAndMessages(null); setVisibility(GONE);
+        if (settingsDialog != null) { settingsDialog.dismiss(); settingsDialog = null; }
+    }
+    void suspendForMenu() { seeking.reset(); menuOpen = true; handler.removeCallbacks(hide); }
     void resumeFromMenu() { menuOpen = false; if (active) show(false); }
     void show(boolean focus) {
         if (!active) return;
@@ -158,16 +166,19 @@ final class PlaybackControls extends LinearLayout {
     private void send(String command, String value) {
         PlaybackBackend b = backend.get();
         PlaybackBackend.State s = b == null ? new PlaybackBackend.State() : b.state();
-        boolean startup = s.canStart && (command.equals("play") || command.equals("toggle") || command.equals("pause"));
+        boolean startup = (s.providerControls && command.equals("player")) || (s.canStart && (command.equals("play") || command.equals("toggle") || command.equals("pause")));
         if (b == null || (!s.available && !startup)) {
             Toast.makeText(activity, "Waiting for the source's video controls. Try another source if playback does not start.", Toast.LENGTH_SHORT).show(); return;
         }
         b.command(command, value); render();
     }
-    private void seekBy(long offset) {
+    private void seekBy(int direction) {
         PlaybackBackend.State s = state();
-        if (!s.seekable) { Toast.makeText(activity, "This stream is not seekable yet.", Toast.LENGTH_SHORT).show(); return; }
-        send("seek", String.valueOf(Math.max(0, Math.min(s.duration > 0 ? s.duration : Long.MAX_VALUE, s.position + offset))));
+        if (!s.available || !s.seekable) { Toast.makeText(activity, "This stream is not seekable yet.", Toast.LENGTH_SHORT).show(); return; }
+        long target = seeking.seek(direction, SystemClock.uptimeMillis(), s.position, s.duration);
+        if (target < 0) return;
+        send("seek", String.valueOf(target));
+        hint.setText((direction < 0 ? "Back " : "Forward ") + seeking.stepMillis / 1000 + "s - release to slow down");
     }
     private void toggleResize() {
         PlaybackBackend.State s = state();
@@ -180,8 +191,9 @@ final class PlaybackControls extends LinearLayout {
     private void render() {
         PlaybackBackend.State s = state();
         if (!scrubbing) {
-            timeline.setProgress(s.duration > 0 ? (int) Math.min(10000, s.position * 10000 / s.duration) : 0);
-            time.setText(format(s.position) + " / " + (s.duration > 0 ? format(s.duration) : "--:--"));
+            long position = seeking.displayPosition(SystemClock.uptimeMillis(), s.position);
+            timeline.setProgress(s.duration > 0 ? (int) Math.min(10000, position * 10000 / s.duration) : 0);
+            time.setText(format(position) + " / " + (s.duration > 0 ? format(s.duration) : "--:--"));
         }
         setStateIcon(play, s.paused ? "Play" : "Pause", s.paused ? "play" : "pause");
         setStateIcon(mute, s.muted ? "Unmute" : "Mute", s.muted ? "muted" : "volume");
@@ -209,13 +221,76 @@ final class PlaybackControls extends LinearLayout {
             String[] labels = new String[choices.size()]; int checked = -1;
             for (int i = 0; i < choices.size(); i++) { labels[i] = choices.get(i).label; if (choices.get(i).selected) checked = i; }
             builder.setSingleChoiceItems(labels, checked, (dialog, index) -> {
-                send(quality ? "quality" : "subtitle", choices.get(index).id); dialog.dismiss();
+                sendOption(quality ? "quality" : "subtitle", choices.get(index)); dialog.dismiss();
             });
         }
         AlertDialog dialog = builder.create();
+        settingsDialog = dialog;
         dialog.setOnDismissListener(d -> resumeFromMenu());
         dialog.show();
         AppStyle.dialog(dialog, 460, -2);
+    }
+
+    private static String settingLabel(String key) {
+        switch (key) {
+            case "audio": return "Audio language / dubbing";
+            case "server": return "Rift server";
+            case "source": return "Rift source / language version";
+            case "speed": return "Playback speed";
+            case "volume": return "Player volume";
+            case "subtitleOffset": return "Subtitle timing (+ means later)";
+            case "subtitleSize": return "Subtitle size";
+            case "subtitlePosition": return "Subtitle vertical position";
+            case "subtitleColor": return "Subtitle color";
+            case "subtitleBackground": return "Subtitle background";
+            case "subtitleFont": return "Subtitle font";
+            case "cast": return "Cast (requires compatible device)";
+            default: return "Use Rift player controls";
+        }
+    }
+    private void settings() {
+        List<String> keys = new ArrayList<>(state().settings.keySet());
+        if (state().providerControls) keys.add("player");
+        suspendForMenu();
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle("Playback settings");
+        if (keys.isEmpty()) builder.setMessage("This source has not exposed additional settings. Rift supplies its available options when ready.").setPositiveButton("OK", null);
+        else {
+            String[] labels = new String[keys.size()];
+            for (int i = 0; i < keys.size(); i++) labels[i] = settingLabel(keys.get(i));
+            builder.setItems(labels, (dialog, index) -> {
+                String key = keys.get(index); dialog.dismiss();
+                if (key.equals("player") || key.equals("cast")) send(key, "");
+                else settingChoices(key);
+            });
+        }
+        showSettingsDialog(builder.create());
+    }
+    private void settingChoices(String key) {
+        List<PlaybackBackend.Option> current = state().settings.get(key);
+        List<PlaybackBackend.Option> choices = current == null ? new ArrayList<>() : new ArrayList<>(current);
+        suspendForMenu();
+        AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle(settingLabel(key));
+        if (choices.isEmpty()) builder.setMessage("No choices are available on the current source.").setPositiveButton("OK", null);
+        else {
+            String[] labels = new String[choices.size()]; int checked = -1;
+            for (int i = 0; i < labels.length; i++) { labels[i] = choices.get(i).label; if (choices.get(i).selected) checked = i; }
+            builder.setSingleChoiceItems(labels, checked, (dialog, index) -> { sendOption(key, choices.get(index)); dialog.dismiss(); });
+        }
+        showSettingsDialog(builder.create());
+    }
+    private void sendOption(String key, PlaybackBackend.Option selected) {
+        PlaybackBackend.State current = state();
+        List<PlaybackBackend.Option> choices = key.equals("quality") ? current.qualities : key.equals("subtitle") ? current.subtitles : current.settings.get(key);
+        if (choices != null) for (PlaybackBackend.Option choice : choices) {
+            // A failover may reuse track ID "0" for a different language/quality.
+            if (choice.id.equals(selected.id) && choice.label.equals(selected.label)) { send(key, selected.id); return; }
+        }
+        Toast.makeText(activity, "The source changed these options. Reopen the menu for the current choices.", Toast.LENGTH_SHORT).show();
+    }
+    private void showSettingsDialog(AlertDialog dialog) {
+        settingsDialog = dialog;
+        dialog.setOnDismissListener(d -> { if (settingsDialog == dialog) { settingsDialog = null; resumeFromMenu(); } });
+        dialog.show(); AppStyle.dialog(dialog, 500, -2);
     }
 
     boolean handleKey(KeyEvent event) {
@@ -230,15 +305,20 @@ final class PlaybackControls extends LinearLayout {
             wakeKey = code; show(true); return true;
         }
         if (direction || select) interact();
+        if (select && (rewind.hasFocus() || forward.hasFocus())) {
+            if (down) seekBy(rewind.hasFocus() ? -1 : 1);
+            return true;
+        }
         if (direction) {
             if (!down) return true;
             if (timeline.hasFocus()) {
-                if (code == KeyEvent.KEYCODE_DPAD_LEFT) seekBy(-10000);
-                else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) seekBy(10000);
-                else if (code == KeyEvent.KEYCODE_DPAD_DOWN) buttons.get(lastButton).requestFocus();
-            } else if (code == KeyEvent.KEYCODE_DPAD_UP) timeline.requestFocus();
+                if (code == KeyEvent.KEYCODE_DPAD_LEFT) seekBy(-1);
+                else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) seekBy(1);
+                else if (code == KeyEvent.KEYCODE_DPAD_DOWN) { seeking.reset(); buttons.get(lastButton).requestFocus(); }
+            } else if (code == KeyEvent.KEYCODE_DPAD_UP) { seeking.reset(); timeline.requestFocus(); }
             else if (code == KeyEvent.KEYCODE_DPAD_DOWN) { handler.removeCallbacks(hide); hide.run(); }
             else {
+                seeking.reset();
                 int index = buttons.indexOf(activity.getCurrentFocus());
                 if (index < 0) index = lastButton;
                 index = Math.max(0, Math.min(buttons.size() - 1, index + (code == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1)));
@@ -254,8 +334,8 @@ final class PlaybackControls extends LinearLayout {
         if (command != null || code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || code == KeyEvent.KEYCODE_MEDIA_REWIND) {
             if (down) {
                 show(false);
-                if (command != null) send(command, "");
-                else seekBy(code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD ? 10000 : -10000);
+                if (command != null) { seeking.reset(); if (event.getRepeatCount() == 0) send(command, ""); }
+                else seekBy(code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD ? 1 : -1);
             }
             return true;
         }

@@ -57,6 +57,12 @@ final class ControlIcon extends Drawable {
             canvas.drawRoundRect(2, 4, 22, 20, 2, 2, paint);
             paint.setStyle(Paint.Style.FILL); paint.setTextSize(9); paint.setTextAlign(Paint.Align.CENTER);
             canvas.drawText("HD", 12, 15.5f, paint);
+        } else if (name.equals("settings")) {
+            for (int i = 0; i < 3; i++) {
+                int x = 5 + i * 7, y = i == 1 ? 15 : 8;
+                line(canvas, x, 3, x, y - 3); line(canvas, x, y + 3, x, 21);
+                canvas.drawCircle(x, y, 3, paint);
+            }
         } else if (name.equals("search")) {
             canvas.drawCircle(10, 10, 6.5f, paint);
             line(canvas, 15, 15, 21, 21);
