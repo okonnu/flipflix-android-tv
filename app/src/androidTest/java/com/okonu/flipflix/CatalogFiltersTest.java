@@ -281,6 +281,52 @@ public final class CatalogFiltersTest {
         });
     }
 
+    @Test @androidx.test.filters.SdkSuppress(minSdkVersion = 24)
+    public void sourceButtonsShareIdleStyleAndOnlyRemoteFocusHighlightsOne() {
+        for (String section : new String[]{"Movies", "TV Shows"}) {
+            Button[] sources = new Button[3];
+            Button[] back = new Button[1];
+            main(() -> {
+                invoke("openSection", section); reply(1); tiles().get(0).performClick();
+                TextView meta = ((View) field(activity(), "root")).findViewWithTag("title-metadata");
+                android.view.ViewGroup details = (android.view.ViewGroup) meta.getParent();
+                android.view.ViewGroup row = (android.view.ViewGroup) details.getChildAt(details.getChildCount() - 1);
+                for (int i = 0; i < 3; i++) sources[i] = (Button) row.getChildAt(i);
+                android.view.ViewGroup content = (android.view.ViewGroup) field(activity(), "content");
+                for (int i = 0; i < content.getChildCount(); i++) {
+                    View child = content.getChildAt(i);
+                    if (child instanceof Button && ((Button) child).getText().toString().startsWith("Back to ")) back[0] = (Button) child;
+                }
+                assertNotNull(back[0]);
+                back[0].requestFocus();
+                for (Button source : sources) assertSourceStyle(source, false);
+                sources[0].requestFocus();
+                assertSourceStyle(sources[0], true);
+            });
+            for (int selected = 1; selected < 3; selected++) {
+                key(KeyEvent.KEYCODE_DPAD_RIGHT);
+                final int focused = selected;
+                main(() -> {
+                    assertSame(sources[focused], activity().getCurrentFocus());
+                    for (int i = 0; i < 3; i++) assertSourceStyle(sources[i], i == focused);
+                });
+            }
+            main(() -> {
+                back[0].requestFocus();
+                for (Button source : sources) assertSourceStyle(source, false);
+            });
+        }
+    }
+
+    @androidx.annotation.RequiresApi(24)
+    private void assertSourceStyle(Button source, boolean focused) {
+        assertEquals(source.getText() + " focus", focused, source.hasFocus());
+        android.graphics.drawable.GradientDrawable background = (android.graphics.drawable.GradientDrawable) source.getBackground();
+        assertEquals(source.getText() + " background", focused ? android.graphics.Color.WHITE : AppStyle.CONTROL,
+            background.getColor().getDefaultColor());
+        assertEquals(source.getText() + " text", focused ? AppStyle.BG : android.graphics.Color.WHITE, source.getCurrentTextColor());
+    }
+
     @Test public void emptyLoadingAndFailureStatesKeepFiltersReachable() {
         key(KeyEvent.KEYCODE_DPAD_DOWN);
         main(() -> assertSame(buttons().get(0), activity().getCurrentFocus()));

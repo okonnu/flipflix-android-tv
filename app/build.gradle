@@ -7,8 +7,8 @@ android {
         applicationId "com.okonu.flipflix"
         minSdk 22
         targetSdk 33
-        versionCode 20
-        versionName "0.1.19"
+        versionCode 21
+        versionName "0.1.20"
         manifestPlaceholders = [appLabel: "Flipflix"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -37,8 +37,8 @@ androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         if (project.hasProperty("isolatedTvTest") && project.hasProperty("updateTestCandidate")) {
             variant.outputs.each { output ->
-                output.versionCode.set(21)
-                output.versionName.set("0.1.20")
+                output.versionCode.set(22)
+                output.versionName.set("0.1.21")
             }
         }
     }

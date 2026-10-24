@@ -966,7 +966,7 @@ public final class MainActivity extends Activity {
         String[] names = sourceNames(item);
         for (int i = 0; i < names.length; i++) {
             final int source = i;
-            Button choice = button(names[i], () -> showPlayer(item, season, episode, source), i == 0);
+            Button choice = button(names[i], () -> showPlayer(item, season, episode, source));
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(124), dp(38));
             p.rightMargin = dp(12);
             sources.addView(choice, p);

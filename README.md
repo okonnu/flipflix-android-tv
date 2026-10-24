@@ -4,6 +4,10 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 
 Download the latest APK: https://tinyurl.com/24qywecz
 
+## Source button styling (v0.1.20)
+
+Bolt, Rift, and Fast now share the same dark idle styling on movie and series details. Only the remote-focused button turns white; moving focus to Back or another source restores Bolt's dark background. The first source still receives initial focus, without a permanent primary-action highlight.
+
 ## Updates, resume, and history (v0.1.19)
 
 - The new clock icon below Library opens History. Bookmarks stay separate. History keeps up to 300 movies/individual episodes on this device, newest first, with artwork and progress. Selecting an entry directly resumes that episode using its last source. Back returns to History.
