@@ -20,8 +20,8 @@ final class NavigationRail extends FrameLayout {
         super(activity); setBackgroundColor(0xf2070a11);
         LinearLayout items = new LinearLayout(activity); items.setOrientation(LinearLayout.VERTICAL); items.setGravity(Gravity.CENTER);
         addView(items, new LayoutParams(-1, -1));
-        String[] glyphs = {"profile", "search", "browse", "library"};
-        String[] labels = {"Local profile", "Search", "Browse", "Library"};
+        String[] glyphs = {"profile", "search", "browse", "library", "history"};
+        String[] labels = {"Local profile", "Search", "Browse", "Library", "History"};
         for (int i = 0; i < labels.length; i++) {
             String label = labels[i], glyph = glyphs[i];
             ImageButton b = new ImageButton(activity); b.setContentDescription(label); b.setFocusableInTouchMode(true);
@@ -50,7 +50,7 @@ final class NavigationRail extends FrameLayout {
         int index = buttons.indexOf(findFocus());
         if (key == KeyEvent.KEYCODE_DPAD_RIGHT) returnToContent.run();
         else if (key == KeyEvent.KEYCODE_DPAD_UP) buttons.get(Math.max(0, index - 1)).requestFocus();
-        else if (key == KeyEvent.KEYCODE_DPAD_DOWN) buttons.get(Math.min(3, index + 1)).requestFocus();
+        else if (key == KeyEvent.KEYCODE_DPAD_DOWN) buttons.get(Math.min(buttons.size() - 1, index + 1)).requestFocus();
         return true;
     }
 }

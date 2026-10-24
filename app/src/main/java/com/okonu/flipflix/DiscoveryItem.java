@@ -8,6 +8,9 @@ final class DiscoveryItem {
     String description = "", metadata = "", attribution = "", logoUrl = "";
     String ageRating = "", episodeInfo = "", broadcastTime = "";
     boolean live;
+    boolean history;
+    long resumePosition;
+    int resumeSeason = 1, resumeEpisode = 1, resumeSource;
     float progress = -1;
     long previewStartMs;
     JSONObject catalog;

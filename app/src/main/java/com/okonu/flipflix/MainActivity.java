@@ -48,6 +48,11 @@ public final class MainActivity extends Activity {
     private static final Typeface MEDIUM = AppStyle.MEDIUM;
     private CatalogApi api = new CatalogApi();
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private AppUpdater updater;
+    private WatchHistory watchHistory;
+    private PlaybackRecovery recovery;
+    private AlertDialog resumeDialog;
+    private long initialPlaybackPosition = -1;
     private final List<List<View>> focusRows = new ArrayList<>();
     private final List<CatalogRow> catalogRows = new ArrayList<>();
     private final CatalogFilters movieFilters = new CatalogFilters("movie");
@@ -77,6 +82,7 @@ public final class MainActivity extends Activity {
     private List<DiscoveryRow> discoveryRows;
     private final DiscoveryView.Position discoveryPosition = new DiscoveryView.Position();
     private final DiscoveryView.Position libraryPosition = new DiscoveryView.Position();
+    private final DiscoveryView.Position historyPosition = new DiscoveryView.Position();
     private View topAction;
     private View customVideoView;
     private WebChromeClient.CustomViewCallback customVideoCallback;
@@ -175,6 +181,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        watchHistory = new WatchHistory(getSharedPreferences("watch_history", MODE_PRIVATE));
         movieFilters.restore(getSharedPreferences("catalog_filters", MODE_PRIVATE));
         tvFilters.restore(getSharedPreferences("catalog_filters", MODE_PRIVATE));
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
@@ -182,6 +189,7 @@ public final class MainActivity extends Activity {
         root.setBackgroundColor(BG);
         setContentView(root);
         openSection("Home");
+        updater = new AppUpdater(this, () -> !playerOpen);
     }
 
     private int dp(float value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
@@ -248,6 +256,7 @@ public final class MainActivity extends Activity {
     }
 
     private void shell(String title) {
+        finishRecovery();
         releaseTrailerPreview();
         releaseDiscovery();
         if (playerOverlay != null) playerOverlay.deactivate();
@@ -305,16 +314,19 @@ public final class MainActivity extends Activity {
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         shell(name.equals("Home") ? "Flipflix" : name);
         if (name.equals("Search")) searchScreen();
-        else if (name.equals("Home") || name.equals("Library")) showDiscovery(name.equals("Library"));
+        else if (name.equals("Home") || name.equals("Library") || name.equals("History")) showDiscovery(name.equals("Library"));
         else showCollection(name);
     }
 
     private void showBrowseMenu() {
-        String[] destinations = {"Home", "Movies", "TV Shows", "Trending", "Anime", "Live Sports", "Library"};
-        String[] labels = {"Home", "Movies - browse & filter", "TV Shows - browse & filter", "Trending", "Anime", "Live Sports", "Library"};
+        String[] destinations = {"Home", "Movies", "TV Shows", "Trending", "Anime", "Live Sports", "Library", "History"};
+        String[] labels = {"Home", "Movies - browse & filter", "TV Shows - browse & filter", "Trending", "Anime", "Live Sports", "Library", "History", "App updates"};
         View restore = getCurrentFocus();
         AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Browse")
-            .setItems(labels, (d, index) -> openSection(destinations[index])).setNegativeButton("Cancel", null).create();
+            .setItems(labels, (d, index) -> {
+                if (index < destinations.length) openSection(destinations[index]);
+                else ui.post(() -> { if (updater != null) updater.showStatus(); });
+            }).setNegativeButton("Cancel", null).create();
         dialog.setOnDismissListener(d -> {
             if (restore != null && restore.isAttachedToWindow() && restore.isShown()) restore.requestFocus();
         });
@@ -369,6 +381,7 @@ public final class MainActivity extends Activity {
         return "/api/tmdb/discover/movie?sort_by=primary_release_date.desc&vote_count.gte=80&include_adult=false&page=";
     }
     private void showDiscovery(boolean library) {
+        boolean history = section.equals("History");
         root.removeAllViews();
         navigationRail = null; pageChrome = null;
         if (discoveryRows == null) discoveryRows = buildDiscoveryRows();
@@ -378,13 +391,36 @@ public final class MainActivity extends Activity {
             List<DiscoveryItem> saved = DiscoveryView.saved(this);
             if (!saved.isEmpty()) { DiscoveryRow row = new DiscoveryRow("Your saved titles", "Home", null, "saved", false); row.items.addAll(saved); row.complete = true; shown.add(row); }
         }
+        if (history) shown = historyRows();
         discovery = new DiscoveryView(this, api, shown, new DiscoveryView.Actions() {
             @Override public void open(DiscoveryItem item) { openDiscoveryItem(item); }
             @Override public void section(String name) { openSection(name); }
             @Override public void more(DiscoveryRow row) { loadDiscoveryRow(row); }
-        }, library ? libraryPosition : discoveryPosition);
+        }, history ? historyPosition : library ? libraryPosition : discoveryPosition);
+        if (history) discovery.historyEmptyState();
         root.addView(discovery, new FrameLayout.LayoutParams(-1, -1));
-        if (!library) for (DiscoveryRow row : discoveryRows) if (row.items.size() <= 2) loadDiscoveryRow(row);
+        if (!library && !history) for (DiscoveryRow row : discoveryRows) if (row.items.size() <= 2) loadDiscoveryRow(row);
+    }
+    private List<DiscoveryRow> historyRows() {
+        List<DiscoveryRow> rows = new ArrayList<>();
+        DiscoveryRow row = null;
+        for (WatchHistory.Entry entry : watchHistory.all()) {
+            if (row == null || row.items.size() == 20) {
+                row = new DiscoveryRow(rows.isEmpty() ? "Recently played" : "Earlier", "History", null, "history", false);
+                row.complete = true; rows.add(row);
+            }
+            Item item = Item.from(entry.catalog, entry.catalog.optString("media_type", "movie"));
+            DiscoveryItem card = new DiscoveryItem(); card.key = "history:" + entry.key; card.catalog = entry.catalog;
+            card.title = item.title + (item.kind.equals("tv") ? " - S" + entry.season + " E" + entry.episode : "");
+            card.category = "Watch history"; card.description = item.overview;
+            card.metadata = (entry.finished ? "Finished" : "Continue at " + WatchHistory.time(entry.position)) + "  |  " + item.metadata();
+            card.thumbnail = "https://image.tmdb.org/t/p/w500" + (item.backdrop.isEmpty() ? item.poster : item.backdrop);
+            card.heroImage = "https://image.tmdb.org/t/p/w1280" + (item.backdrop.isEmpty() ? item.poster : item.backdrop);
+            card.progress = entry.duration > 0 ? (float) entry.position / entry.duration : -1;
+            card.history = true; card.resumePosition = entry.resumePosition(); card.resumeSource = entry.source;
+            card.resumeSeason = entry.season; card.resumeEpisode = entry.episode; row.items.add(card);
+        }
+        return rows;
     }
     private void loadDiscoveryRow(DiscoveryRow row) {
         if (row.loading || row.complete) return;
@@ -431,6 +467,11 @@ public final class MainActivity extends Activity {
         int index = discovery.rows.indexOf(row); if (index >= 0) discovery.refreshRow(index);
     }
     private void openDiscoveryItem(DiscoveryItem entry) {
+        if (entry.history && entry.catalog != null) {
+            Item item = Item.from(entry.catalog, entry.catalog.optString("media_type", "movie"));
+            showPlayerAtPosition(item, entry.resumeSeason, entry.resumeEpisode, entry.resumeSource, entry.resumePosition);
+            return;
+        }
         if (!entry.watchUrl.isEmpty()) {
             Item item = new Item(); item.kind = "sample"; item.title = entry.title; item.sampleUrl = entry.watchUrl;
             showPlayer(item, 1, 1, 0); return;
@@ -1076,6 +1117,37 @@ public final class MainActivity extends Activity {
     }
 
     private void showPlayer(Item item, int s, int e, int source) {
+        String key = WatchHistory.key(item.kind, item.id, s, e);
+        WatchHistory.Entry saved = watchHistory.get(key);
+        if (saved == null || saved.resumePosition() == 0) { showPlayerAtPosition(item, s, e, source, saved == null ? -1 : 0); return; }
+        releaseTrailerPreview();
+        PlaybackBackend current = playbackBackend();
+        boolean wasPlaying = playerOpen && current != null && !current.state().paused;
+        if (wasPlaying) current.command("pause", "");
+        if (playerOverlay != null) playerOverlay.suspendForMenu();
+        final boolean[] chosen = {false};
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(item.title + (item.kind.equals("tv") ? " - S" + s + " E" + e : ""))
+            .setMessage("Continue from where you left off?")
+            .setPositiveButton("Resume at " + WatchHistory.time(saved.resumePosition()), (d, w) -> {
+                chosen[0] = true; showPlayerAtPosition(item, s, e, source, saved.resumePosition());
+            }).setNeutralButton("Start from beginning", (d, w) -> {
+                chosen[0] = true; finishRecovery(); watchHistory.startOver(key); showPlayerAtPosition(item, s, e, source, 0);
+            }).setNegativeButton("Cancel", null).create();
+        dialog.setOnDismissListener(d -> {
+            if (resumeDialog == dialog) resumeDialog = null;
+            if (!chosen[0]) {
+                if (wasPlaying && current == playbackBackend()) current.command("play", "");
+                if (playerOverlay != null) playerOverlay.resumeFromMenu();
+            }
+        });
+        resumeDialog = dialog;
+        dialog.show(); AppStyle.dialog(dialog, 520, -2);
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus();
+    }
+
+    private void showPlayerAtPosition(Item item, int s, int e, int source, long position) {
+        finishRecovery();
+        initialPlaybackPosition = position;
         releaseTrailerPreview();
         releaseDiscovery();
         selected = item;
@@ -1182,6 +1254,8 @@ public final class MainActivity extends Activity {
     }
 
     private void loadSource(Item item, int source, int s, int e) {
+        long resumePosition = recovery == null ? initialPlaybackPosition : recovery.restartPosition();
+        finishRecovery(); initialPlaybackPosition = -1;
         clearCustomVideoView();
         currentSourceIndex = source;
         int request = ++sourceRequest;
@@ -1206,7 +1280,22 @@ public final class MainActivity extends Activity {
             riftPlayer.load(sourceUrl(item, source, s, e), item.id, item.kind, s, e);
             revealPlayerOverlay(false);
         } else loadEmbed(item, source, s, e);
+        String historyKey = WatchHistory.key(item.kind, item.id, s, e);
+        if (!historyKey.isEmpty()) {
+            JSONObject catalog = new JSONObject();
+            try {
+                catalog.put("id", item.id).put("media_type", item.kind).put("title", item.title).put("year", item.year)
+                    .put("backdrop_path", item.backdrop).put("poster_path", item.poster).put("overview", item.overview)
+                    .put("vote_average", item.rating.isEmpty() ? 0 : Double.parseDouble(item.rating));
+            } catch (Exception ignored) { }
+            recovery = new PlaybackRecovery(watchHistory, historyKey, catalog, s, e, source, resumePosition, this::playbackBackend,
+                message -> android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show());
+            recovery.resume();
+        }
     }
+
+    private PlaybackBackend playbackBackend() { return nativePlayer != null ? nativePlayer : riftPlayer != null ? riftPlayer : embeddedPlayer; }
+    private void finishRecovery() { if (recovery != null) { recovery.close(); recovery = null; } }
 
     private void useProviderControls() {
         providerInput = true;
@@ -1265,9 +1354,10 @@ public final class MainActivity extends Activity {
         if (!playerOpen) return;
         playerOpen = false;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (selected != null && selected.kind.equals("sample")) openSection(section);
+        if (section.equals("History") || (selected != null && selected.kind.equals("sample"))) openSection(section);
         else if (selected != null && !selected.kind.equals("sport")) showDetail(selected);
         else openSection("Live Sports");
+        if (updater != null) updater.stateChanged();
     }
 
     private void loadEmbed(Item item, int source, int s, int e) {
@@ -1458,6 +1548,9 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        if (resumeDialog != null) { resumeDialog.dismiss(); resumeDialog = null; }
+        finishRecovery();
+        if (updater != null) updater.close();
         releaseTrailerPreview();
         releaseDiscovery();
         playerOpen = false;
@@ -1476,6 +1569,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        if (recovery != null) recovery.pause();
+        if (updater != null) updater.pause();
         releaseTrailerPreview();
         if (riftPlayer != null) riftPlayer.command("pause", "");
         if (discovery != null) discovery.setActive(false);
@@ -1484,6 +1579,8 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if (recovery != null) recovery.resume();
+        if (updater != null) updater.resume();
         if (discovery != null) discovery.setActive(hasWindowFocus());
     }
 
@@ -1491,5 +1588,11 @@ public final class MainActivity extends Activity {
         super.onWindowFocusChanged(hasFocus);
         if (trailerPreview != null) trailerPreview.onWindowFocusChanged(hasFocus);
         if (discovery != null) discovery.setActive(hasFocus);
+        if (updater != null) updater.stateChanged();
+    }
+
+    @Override protected void onActivityResult(int request, int result, android.content.Intent data) {
+        super.onActivityResult(request, result, data);
+        if (updater != null) updater.activityResult(request);
     }
 }

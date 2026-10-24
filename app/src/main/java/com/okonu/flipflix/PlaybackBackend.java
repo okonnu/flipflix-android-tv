@@ -19,7 +19,7 @@ interface PlaybackBackend {
         final List<Option> qualities = new ArrayList<>();
         // Optional provider-owned choices, refreshed atomically with each state event.
         final java.util.Map<String, List<Option>> settings = new java.util.LinkedHashMap<>();
-        boolean providerControls;
+        boolean providerControls, ended;
     }
     State state();
     void command(String name, String value);

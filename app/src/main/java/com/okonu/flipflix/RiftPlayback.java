@@ -81,6 +81,7 @@ final class RiftPlayback implements PlaybackBackend {
                 if (data.has("currentTime")) latest.position = millis(data.optDouble("currentTime"));
                 if (data.has("duration")) { latest.duration = millis(data.optDouble("duration")); latest.seekable = latest.duration > 0; }
                 if (!type.equals("vidrift:progress")) latest.paused = !type.equals("vidrift:unpaused");
+                latest.ended = type.equals("vidrift:ended");
             } else if (type.equals("vidrift:command-error")) {
                 String reason = data.optString("reason");
                 notice.accept(reason.equals("click-required") ? "Rift needs an action in its player first. Open Playback settings > Use Rift player controls."

@@ -7,8 +7,8 @@ android {
         applicationId "com.okonu.flipflix"
         minSdk 22
         targetSdk 33
-        versionCode 19
-        versionName "0.1.18"
+        versionCode 20
+        versionName "0.1.19"
         manifestPlaceholders = [appLabel: "Flipflix"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -27,6 +27,19 @@ android {
         release {
             signingConfig signingConfigs.debug
             minifyEnabled false
+        }
+    }
+    // Generated, signed future-version fixture. Never packaged in the release app.
+    sourceSets.androidTest.assets.srcDir(layout.buildDirectory.dir("update-test-assets"))
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        if (project.hasProperty("isolatedTvTest") && project.hasProperty("updateTestCandidate")) {
+            variant.outputs.each { output ->
+                output.versionCode.set(21)
+                output.versionName.set("0.1.20")
+            }
         }
     }
 }

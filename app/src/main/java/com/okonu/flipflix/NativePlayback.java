@@ -28,7 +28,7 @@ final class NativePlayback implements PlaybackBackend {
 
     NativePlayback(Context context, String url, String referer, JSONArray captions) {
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-            .setUserAgent("Flipflix/0.1.18")
+            .setUserAgent("Flipflix/0.1.19")
             .setDefaultRequestProperties(Collections.singletonMap("Referer", referer));
         player = new ExoPlayer.Builder(context)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(context, http))).build();
@@ -59,6 +59,7 @@ final class NativePlayback implements PlaybackBackend {
     @Override public State state() {
         State s = new State();
         s.available = player.getPlaybackState() != Player.STATE_IDLE;
+        s.ended = player.getPlaybackState() == Player.STATE_ENDED;
         s.seekable = player.isCurrentMediaItemSeekable();
         s.paused = !player.getPlayWhenReady();
         s.muted = player.getVolume() == 0;

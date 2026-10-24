@@ -73,6 +73,9 @@ final class ControlIcon extends Drawable {
             canvas.drawRoundRect(3, 14, 10, 21, 1, 1, paint); canvas.drawRoundRect(14, 14, 21, 21, 1, 1, paint);
         } else if (name.equals("library")) {
             line(canvas, 5, 3, 19, 3, 19, 22, 12, 17, 5, 22, 5, 3);
+        } else if (name.equals("history")) {
+            canvas.drawArc(3, 3, 21, 21, 205, 310, false, paint);
+            line(canvas, 2, 3, 2, 9, 8, 9); line(canvas, 12, 7, 12, 12, 16, 14);
         } else if (name.equals("home")) {
             line(canvas, 3, 11, 12, 3, 21, 11);
             line(canvas, 6, 9, 6, 21, 18, 21, 18, 9);

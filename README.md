@@ -4,6 +4,18 @@ Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests 
 
 Download the latest APK: https://tinyurl.com/24qywecz
 
+## Updates, resume, and history (v0.1.19)
+
+- The new clock icon below Library opens History. Bookmarks stay separate. History keeps up to 300 movies/individual episodes on this device, newest first, with artwork and progress. Selecting an entry directly resumes that episode using its last source. Back returns to History.
+- Opening a previously watched title from the catalog offers Resume at the saved time, Start from beginning, or Cancel. Near-complete titles remain in History as Finished and start over. Movies and each season/episode have separate records; switching source or retrying carries the current position.
+- Progress is saved every five seconds during playback and when leaving/backgrounding the player. This samples already-received Java player state, without extra network requests, JavaScript polling, or DOM scans. Resume waits for seekable metadata and acknowledgement, makes at most three seek attempts, and retains the old bookmark if a provider cannot seek. Live sports, previews, and short advertisement frames are excluded. Progress depends on a source exposing usable video state; Rift uses its official API. A forced kill or power cut may lose the most recent few seconds. History is local, not synced between TVs, and cannot recover viewing that happened before this feature was installed.
+- Automatic updates check the public [GitHub latest-release API](https://docs.github.com/en/rest/releases/releases#get-the-latest-release) when the app is foregrounded, at most once every six hours. Offline failures back off for 15 minutes. No always-running background service, GitHub credentials, or silent installations are used. Browse > App updates allows a manual check.
+- A newer stable release's `app-release.apk` downloads privately. Its SHA-256 digest, package name, version code/name, and signing certificate must match before installation. Draft/prerelease, older, incomplete, wrong-package, or wrong-key APKs are rejected. Only HTTPS GitHub download hosts are accepted. A verified pending download survives app/TV restarts.
+- The install prompt waits until you leave playback. Later snoozes it for 24 hours; App updates can reopen it immediately. Android 8+ may ask you to allow Flipflix to install unknown apps. Android/Fire TV still displays its own installation confirmation; the app does not bypass that requirement. Older Fire OS uses the system installer/unknown-sources setting. The APK is shared only with a temporary read grant through [FileProvider](https://developer.android.com/reference/androidx/core/content/FileProvider), not broad storage access.
+- Install v0.1.19 once to gain automatic updates; earlier Flipflix versions do not contain this updater. Future releases must increase both numeric `vX.Y.Z` and Android versionCode, keep the same signing key/package, and upload `app-release.apk` with a GitHub SHA-256 digest. The stable TinyURL remains unchanged.
+- Audio language/dubbing choices are supplied by the current source, using its track labels, not a fixed list of languages. Rift also exposes source/language versions when provided; availability can differ by title and source.
+- Verified on the actual onn TV box over wireless ADB: 85 regression tests passed, three optional live probes skipped, release lint/build passed. Separate live Rift tests restored playback at 2:00. Update tests verified a signed higher-version fixture and the install-permission return path without changing the TV's security settings.
+
 ![Native discovery screen captured on the Android TV emulator](docs/screenshots/discovery-home.png)
 
 ## What works
@@ -104,7 +116,12 @@ The optional `RiftPlaybackTest#liveRiftProbe` accepts `-Pandroid.testInstrumenta
 `TrailerPreviewTest` exercises the real WebView wrapper/message bridge, sound-enabled startup, system volume-key passthrough, official trailer selection, loading label, PLAYING-gated fade, animated return, key-up/held-key consumption, focus restoration, repeated 3-second idle resumes using the same player, deferred initial lookup and late responses, replay after completion, dialog suspension, failures/timeouts, lifecycle cleanup, and subframe-message rejection. Its optional `liveYouTubeProbe` diagnostic runs only when passed `-Pandroid.testInstrumentationRunnerArguments.liveTrailer=<YouTube ID>` and reports observed live playback separately from deterministic regression assertions. Adding `-Pandroid.testInstrumentationRunnerArguments.requireLiveAudio=true` asserts that the actual YouTube player reaches PLAYING with mute off and nonzero player volume; it does not measure sound from a physical TV's speakers. `-Pandroid.testInstrumentationRunnerArguments.requireLiveResume=true` also sends a remote press and verifies that the same live player resumes after the idle delay.
 
 ```sh
+ANDROID_HOME=/home/okonu/Android/Sdk ./gradlew -PisolatedTvTest -PupdateTestCandidate assembleDebug
+mkdir -p app/build/update-test-assets
+cp app/build/outputs/apk/debug/app-debug.apk app/build/update-test-assets/update-candidate.apk
 ANDROID_HOME=/home/okonu/Android/Sdk ANDROID_SERIAL="TV_IP:5555" ./gradlew -PisolatedTvTest connectedDebugAndroidTest
 ```
+
+The first build generates a signed, higher-version APK fixture for `AppUpdaterTest`; it is never installed over the viewer's app or shipped in the release. The update tests cover stable release selection, checksums, signer/package/version rejection, cached downloads, offline backoff, playback deferral, Later, and installer URI grants. `WatchHistoryTest` covers persistence, episode identity, start-over/completion, bounded seek recovery, remote access to History, and direct resume. Always build release without `updateTestCandidate`; that property affects only the isolated debug package.
 
 Use the actual TV box over wireless ADB for future testing, not an emulator. `-PisolatedTvTest` installs the debug app as `com.okonu.flipflix.validation` (Flipflix Test), separate from the viewer's release data. Remove that temporary package and its instrumentation package after testing. Build `assembleRelease` normally for the regular `com.okonu.flipflix` APK. Do not clear or uninstall the viewer's release app.

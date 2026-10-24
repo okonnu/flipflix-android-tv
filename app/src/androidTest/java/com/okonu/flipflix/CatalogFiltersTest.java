@@ -274,7 +274,8 @@ public final class CatalogFiltersTest {
             assertTrue(((android.view.ViewGroup) field(activity(), "pageChrome")).isShown());
             invoke("openSection", "Search");
             NavigationRail rail = (NavigationRail) field(activity(), "navigationRail");
-            assertTrue(rail.isAttachedToWindow()); assertEquals(4, rail.buttons.size());
+            assertTrue(rail.isAttachedToWindow()); assertEquals(5, rail.buttons.size());
+            assertEquals("History", rail.buttons.get(4).getContentDescription());
             Button home = (Button) field(activity(), "topAction"); home.requestFocus();
             assertEquals(AppStyle.BG, home.getCurrentTextColor());
         });

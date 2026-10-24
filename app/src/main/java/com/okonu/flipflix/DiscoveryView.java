@@ -30,6 +30,11 @@ final class DiscoveryView extends FrameLayout {
         void section(String name);
         void more(DiscoveryRow row);
     }
+    void historyEmptyState() {
+        if (!rows.isEmpty()) return;
+        title.setText("Your history"); description.setText("Movies and episodes you play will appear here. Select one to continue watching.");
+        metadata.setText("Watch history and progress are saved on this device.");
+    }
     static final class Position { int row, card; }
     private static final int BG = AppStyle.BG, MUTED = AppStyle.MUTED;
     final List<DiscoveryRow> rows;
@@ -199,6 +204,8 @@ final class DiscoveryView extends FrameLayout {
         credit.setText(item.attribution); credit.setVisibility(item.attribution.isEmpty() ? GONE : VISIBLE);
         watch.setText(item.watchUrl.isEmpty() ? "View details" : "Watch trailer");
         if (item.live) watch.setText("Watch live");
+        if (item.history) watch.setText(item.resumePosition > 0 ? "Resume at " + WatchHistory.time(item.resumePosition) : "Play again");
+        save.setVisibility(item.history ? GONE : VISIBLE);
         save.setText(isSaved(item) ? "Saved" : "+ Library");
         logo.setVisibility(item.logoUrl.isEmpty() ? GONE : VISIBLE);
         if (!item.logoUrl.isEmpty()) api.imageUrl(logo, item.logoUrl, null);
@@ -233,10 +240,10 @@ final class DiscoveryView extends FrameLayout {
             int index = railButtons.indexOf(activity.getCurrentFocus());
             if (key == KeyEvent.KEYCODE_DPAD_RIGHT) focusCard(selectedRow, selectedCard);
             else if (key == KeyEvent.KEYCODE_DPAD_UP) railButtons.get(Math.max(0, index - 1)).requestFocus();
-            else if (key == KeyEvent.KEYCODE_DPAD_DOWN) railButtons.get(Math.min(3, index + 1)).requestFocus();
+            else if (key == KeyEvent.KEYCODE_DPAD_DOWN) railButtons.get(Math.min(railButtons.size() - 1, index + 1)).requestFocus();
         } else if (inHero) {
             if (key == KeyEvent.KEYCODE_DPAD_DOWN) focusCard(selectedRow, selectedCard);
-            else if (key == KeyEvent.KEYCODE_DPAD_RIGHT) save.requestFocus();
+            else if (key == KeyEvent.KEYCODE_DPAD_RIGHT && save.getVisibility() == VISIBLE) save.requestFocus();
             else if (key == KeyEvent.KEYCODE_DPAD_LEFT) { if (save.hasFocus()) watch.requestFocus(); else railButtons.get(2).requestFocus(); }
         } else if (inHeading) {
             if (key == KeyEvent.KEYCODE_DPAD_RIGHT) focusCard(selectedRow, rows.get(selectedRow).lastIndex);
@@ -342,12 +349,12 @@ final class DiscoveryView extends FrameLayout {
             if (item.live) {
                 TextView badge = text("ON NOW", 8, Color.WHITE, true); badge.setPadding(dp(5), dp(3), dp(5), dp(3)); badge.setBackground(shape(0xc0000000, Color.TRANSPARENT));
                 LayoutParams p = new LayoutParams(-2, -2, Gravity.TOP | Gravity.RIGHT); p.topMargin = dp(7); p.rightMargin = dp(7); picture.addView(badge, p);
+            }
                 if (item.progress >= 0) {
                     View progress = new View(activity) { final android.graphics.Paint paint = new android.graphics.Paint();
                         @Override protected void onDraw(android.graphics.Canvas canvas) { paint.setColor(0x70ffffff); canvas.drawRect(0, 0, getWidth(), getHeight(), paint); paint.setColor(0xffe43e49); canvas.drawRect(0, 0, getWidth() * Math.max(0, Math.min(1, item.progress)), getHeight(), paint); } };
                     picture.addView(progress, new LayoutParams(-1, dp(3), Gravity.BOTTOM));
                 }
-            }
             label = text(item.title, 12, 0xffdce0e7, true); label.setMaxLines(1); label.setEllipsize(TextUtils.TruncateAt.END); addView(label);
             setOnFocusChangeListener((v, focused) -> {
                 picture.setForeground(shape(Color.TRANSPARENT, focused ? Color.WHITE : Color.TRANSPARENT));
