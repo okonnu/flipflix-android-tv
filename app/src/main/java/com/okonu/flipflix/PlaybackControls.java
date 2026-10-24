@@ -32,6 +32,7 @@ final class PlaybackControls extends LinearLayout {
     private final List<ImageButton> buttons = new ArrayList<>();
     private final SeekBar timeline;
     private final TextView time, hint;
+    private TextView restart;
     private final ImageButton play, mute, source, resize, rewind, forward;
     private final SeekAccelerator seeking = new SeekAccelerator();
     private AlertDialog settingsDialog;
@@ -63,7 +64,7 @@ final class PlaybackControls extends LinearLayout {
         setOrientation(VERTICAL);
         setPadding(dp(28), dp(38), dp(28), dp(14));
         setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-            new int[]{0x00070a11, 0xc8070a11, 0xf0070a11}));
+            new int[]{0x00000000, 0xb8000000, 0xef000000}));
         LinearLayout progress = row();
         addView(progress, new LayoutParams(-1, dp(40)));
         timeline = new SeekBar(activity);
@@ -73,9 +74,13 @@ final class PlaybackControls extends LinearLayout {
         timeline.setProgressBackgroundTintList(ColorStateList.valueOf(AppStyle.BORDER));
         timeline.setThumbTintList(ColorStateList.valueOf(AppStyle.ACCENT));
         timeline.setFocusableInTouchMode(true);
+        timeline.setBackground(null);
+        if (android.os.Build.VERSION.SDK_INT >= 26) timeline.setDefaultFocusHighlightEnabled(false);
+        timeline.setSplitTrack(false);
+        styleTimeline(false);
         timeline.setPadding(dp(8), 0, dp(8), 0);
         timeline.setOnFocusChangeListener((v, focused) -> {
-            timeline.setBackground(focused ? shape(0x30ffffff, Color.WHITE) : null);
+            styleTimeline(focused);
             if (focused) hint.setText("Left / right: seek. Keep pressing to speed up. Down: controls");
         });
         timeline.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -127,9 +132,17 @@ final class PlaybackControls extends LinearLayout {
     private GradientDrawable shape(int fill, int border) {
         return AppStyle.shape(activity, fill, border);
     }
+    private void styleTimeline(boolean focused) {
+        GradientDrawable thumb = new GradientDrawable();
+        thumb.setShape(GradientDrawable.OVAL); thumb.setColor(AppStyle.ACCENT);
+        thumb.setSize(dp(focused ? 14 : 8), dp(focused ? 14 : 8));
+        timeline.setThumb(thumb);
+    }
     private ImageButton icon(LinearLayout row, String label, String glyph, Runnable action) {
         ImageButton b = new ImageButton(activity);
         b.setContentDescription(label); b.setFocusableInTouchMode(true);
+        b.setStateListAnimator(null);
+        if (android.os.Build.VERSION.SDK_INT >= 26) b.setDefaultFocusHighlightEnabled(false);
         b.setPadding(dp(12), dp(12), dp(12), dp(12));
         b.setImageDrawable(new ControlIcon(glyph, Color.WHITE));
         b.setBackground(shape(Color.TRANSPARENT, Color.TRANSPARENT));
@@ -143,6 +156,29 @@ final class PlaybackControls extends LinearLayout {
         row.addView(b, p); buttons.add(b); return b;
     }
     void sourceName(String name) { seeking.reset(); source.setContentDescription("Source: " + name); }
+    void offerRestart(Runnable action) {
+        if (restart != null) return;
+        restart = label("Start from beginning", 14);
+        restart.setFocusableInTouchMode(true);
+        restart.setPadding(dp(14), 0, dp(14), 0);
+        restart.setContentDescription("Start from beginning");
+        ControlIcon glyph = new ControlIcon("retry", Color.WHITE); glyph.setBounds(0, 0, dp(18), dp(18));
+        restart.setCompoundDrawables(glyph, null, null, null); restart.setCompoundDrawablePadding(dp(8));
+        restart.setBackground(shape(AppStyle.CONTROL, Color.TRANSPARENT));
+        if (android.os.Build.VERSION.SDK_INT >= 26) restart.setDefaultFocusHighlightEnabled(false);
+        restart.setOnFocusChangeListener((view, focused) -> {
+            int color = focused ? Color.BLACK : Color.WHITE;
+            restart.setTextColor(color); glyph.color(color);
+            restart.setBackground(shape(focused ? Color.WHITE : AppStyle.CONTROL, Color.TRANSPARENT));
+            if (focused) hint.setText("Start this title from the beginning");
+        });
+        restart.setOnClickListener(view -> {
+            seeking.reset(); action.run(); restart.setVisibility(GONE);
+            buttons.get(0).requestFocus(); interact();
+        });
+        LayoutParams p = new LayoutParams(-2, dp(38)); p.gravity = Gravity.END; p.bottomMargin = dp(8);
+        addView(restart, 0, p);
+    }
     void activate() { active = true; show(true); }
     void deactivate() {
         active = false; seeking.reset(); handler.removeCallbacksAndMessages(null); setVisibility(GONE);
@@ -311,9 +347,12 @@ final class PlaybackControls extends LinearLayout {
         }
         if (direction) {
             if (!down) return true;
-            if (timeline.hasFocus()) {
+            if (restart != null && restart.hasFocus()) {
+                if (code == KeyEvent.KEYCODE_DPAD_DOWN) timeline.requestFocus();
+            } else if (timeline.hasFocus()) {
                 if (code == KeyEvent.KEYCODE_DPAD_LEFT) seekBy(-1);
                 else if (code == KeyEvent.KEYCODE_DPAD_RIGHT) seekBy(1);
+                else if (code == KeyEvent.KEYCODE_DPAD_UP && restart != null && restart.getVisibility() == VISIBLE) restart.requestFocus();
                 else if (code == KeyEvent.KEYCODE_DPAD_DOWN) { seeking.reset(); buttons.get(lastButton).requestFocus(); }
             } else if (code == KeyEvent.KEYCODE_DPAD_UP) { seeking.reset(); timeline.requestFocus(); }
             else if (code == KeyEvent.KEYCODE_DPAD_DOWN) { handler.removeCallbacks(hide); hide.run(); }

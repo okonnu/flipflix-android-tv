@@ -99,6 +99,36 @@ public final class RiftPlaybackTest {
         main(() -> { rift.command("player",""); assertTrue(direct); });
         fixture("emit({type:'vidrift:exit'})"); await(() -> exited);
     }
+
+    @Test public void nativeModeHidesRiftChromeButNotVideoCaptionsOrErrors() throws Exception {
+        install();
+        org.junit.Assume.assumeTrue("Document-start injection is required", rift.nativeControlsSupported());
+        checkChrome(true, 101);
+        fixture("document.getElementById('player').className='paused controls-visible';"
+            + "var button=document.createElement('button');button.id='centerBack';document.getElementById('player').appendChild(button)");
+        checkChrome(true, 102); // Late controls and pause must not wake a second surface.
+        main(() -> rift.command("player", ""));
+        checkChrome(false, 103);
+        js("document.getElementById('rift').src=document.getElementById('rift').src");
+        await(() -> rift.state().position == 100000);
+        checkChrome(false, 107);
+        main(() -> rift.nativeControls(true));
+        checkChrome(true, 104);
+        // A stale/untrusted window message cannot restore provider controls.
+        fixture("window.dispatchEvent(new MessageEvent('message',{data:{native:false}}))");
+        checkChrome(true, 105);
+        js("document.getElementById('rift').src=document.getElementById('rift').src");
+        await(() -> rift.state().position == 100000);
+        checkChrome(true, 106);
+    }
+    private void checkChrome(boolean hidden, int token) throws Exception {
+        String test = "Array.prototype.every.call(document.querySelectorAll('#labeledBar,#centerToggle,#centerBack'),function(node){return (getComputedStyle(node).display==='none')===" + hidden + "})"
+            + "&&(getComputedStyle(document.querySelector('.bottom-bar')).display==='none')===" + hidden
+            + "&&['video','captionOverlay','fatal'].every(function(id){return getComputedStyle(document.getElementById(id)).display!=='none'})";
+        fixture("s.currentTime=(" + test + ")?" + token + ":1;emit(s)");
+        await(() -> rift.state().position == token * 1000L || rift.state().position == 1000);
+        main(() -> assertEquals("Only the chosen control layer is visible; video/captions/errors survive", token * 1000L, rift.state().position));
+    }
     @Test public void rejectsWrongOriginsFramesEpisodesAndClosedSessions() throws Exception {
         install();
         String event = "{type:'vidrift:state',tmdbId:42,mediaType:'tv',season:1,episode:2,currentTime:999,duration:1000}";
@@ -145,7 +175,10 @@ public final class RiftPlaybackTest {
         assertTrue("Live Rift exposes its documented state in this WebView", ready.get());
     }
 
-    private static final String FIXTURE = "<!doctype html><script>"
+    private static final String FIXTURE = "<!doctype html><html><head></head><body>"
+        + "<div id='player'><video id='video'></video><div id='labeledBar'>Provider top bar</div>"
+        + "<div class='bottom-bar'>Provider timeline</div><button id='centerToggle'>Provider pause</button>"
+        + "<div id='captionOverlay'>Captions</div><div id='fatal'>Error message</div></div><script>"
         + "var s={type:'vidrift:state',tmdbId:42,mediaType:'tv',season:1,episode:2,paused:false,currentTime:100,duration:3600,volume:1,muted:false,speed:1,"
         + "audio:'en',audios:[{value:'en',label:'English'},{value:'ko',label:'Korean'}],server:'vela',servers:[{value:'vela',label:'Vela'},{value:'orion',label:'Orion'}],"
         + "source:'0',sources:[{value:'0',label:'English'},{value:'1',label:'Dub'}],quality:'auto',qualities:[{value:'auto',label:'Auto'},{value:'hd',label:'1080p'}],"

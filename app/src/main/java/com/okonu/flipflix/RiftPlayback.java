@@ -20,6 +20,7 @@ final class RiftPlayback implements PlaybackBackend {
     private final Notice notice;
     private final Runnable providerControls, exit;
     private final String session = UUID.randomUUID().toString();
+    private final RiftChrome chrome;
     private State latest = new State();
     private boolean closed, fill;
 
@@ -27,6 +28,7 @@ final class RiftPlayback implements PlaybackBackend {
 
     RiftPlayback(WebView web, Notice notice, Runnable providerControls, Runnable exit) {
         this.web = web; this.notice = notice; this.providerControls = providerControls; this.exit = exit;
+        chrome = new RiftChrome(web, session);
         WebViewCompat.addWebMessageListener(web, "FlipflixRift", Collections.singleton(ORIGIN),
             (view, message, origin, mainFrame, reply) -> {
                 if (!closed && view == web && mainFrame && ORIGIN.equals(origin.toString())) receive(message.getData());
@@ -117,9 +119,11 @@ final class RiftPlayback implements PlaybackBackend {
         return choices;
     }
     @Override public State state() { return latest; }
+    boolean nativeControlsSupported() { return chrome.supported(); }
+    void nativeControls(boolean enabled) { chrome.nativeControls(enabled); }
     @Override public void command(String name, String value) {
         if (closed) return;
-        if (name.equals("player")) { providerControls.run(); return; }
+        if (name.equals("player")) { chrome.nativeControls(false); providerControls.run(); return; }
         try {
             JSONObject command = new JSONObject();
             if (name.equals("toggle")) name = latest.paused ? "play" : "pause";
@@ -146,5 +150,5 @@ final class RiftPlayback implements PlaybackBackend {
             web.evaluateJavascript("window.riftCommand && window.riftCommand(" + JSONObject.quote(session) + "," + command + ")", null);
         } catch (Exception ignored) { notice.accept("Rift could not apply that control."); }
     }
-    void close() { if (closed) return; closed = true; latest = new State(); WebViewCompat.removeWebMessageListener(web, "FlipflixRift"); }
+    void close() { if (closed) return; closed = true; latest = new State(); chrome.close(); WebViewCompat.removeWebMessageListener(web, "FlipflixRift"); }
 }

@@ -81,6 +81,16 @@ public final class PlaybackControlsTest {
     }
     private void key(int key) { getInstrumentation().sendKeyDownUpSync(key); getInstrumentation().waitForIdleSync(); }
 
+    @Test public void testTimelineFocusUsesThumbInsteadOfWhitePanel() {
+        install(new FakeBackend());
+        key(KeyEvent.KEYCODE_DPAD_UP);
+        main(() -> {
+            android.widget.SeekBar timeline = (android.widget.SeekBar) activity.getCurrentFocus();
+            assertNull("The Netflix-style timeline has no rectangular focus background", timeline.getBackground());
+            if (android.os.Build.VERSION.SDK_INT >= 26) assertFalse(timeline.getDefaultFocusHighlightEnabled());
+        });
+    }
+
     @Test public void testFocusedControlsHideAndWakeWithoutAccidentalClick() {
         FakeBackend backend = new FakeBackend(); install(backend);
         main(() -> assertTrue(activity.getCurrentFocus() instanceof ImageButton));

@@ -51,7 +51,6 @@ public final class MainActivity extends Activity {
     private AppUpdater updater;
     private WatchHistory watchHistory;
     private PlaybackRecovery recovery;
-    private AlertDialog resumeDialog;
     private long initialPlaybackPosition = -1;
     private final List<List<View>> focusRows = new ArrayList<>();
     private final List<CatalogRow> catalogRows = new ArrayList<>();
@@ -469,7 +468,7 @@ public final class MainActivity extends Activity {
     private void openDiscoveryItem(DiscoveryItem entry) {
         if (entry.history && entry.catalog != null) {
             Item item = Item.from(entry.catalog, entry.catalog.optString("media_type", "movie"));
-            showPlayerAtPosition(item, entry.resumeSeason, entry.resumeEpisode, entry.resumeSource, entry.resumePosition);
+            showPlayer(item, entry.resumeSeason, entry.resumeEpisode, entry.resumeSource);
             return;
         }
         if (!entry.watchUrl.isEmpty()) {
@@ -482,7 +481,7 @@ public final class MainActivity extends Activity {
             item.year = entry.metadata; item.rating = ""; item.overview = o.optString("id");
             JSONArray sources = o.optJSONArray("sources"); JSONObject source = sources == null ? null : sources.optJSONObject(0);
             item.backdrop = source == null ? "" : source.optString("source") + "/" + source.optString("id"); showSportsPlayer(item);
-        } else showDetail(Item.from(entry.catalog, entry.catalog.optString("media_type", "movie")));
+        } else openTitle(Item.from(entry.catalog, entry.catalog.optString("media_type", "movie")));
     }
     private void releaseDiscovery() { if (discovery != null) { discovery.close(); discovery = null; } }
 
@@ -618,7 +617,7 @@ public final class MainActivity extends Activity {
         p.rightMargin = dp(10);
         p.bottomMargin = dp(12);
         box.setLayoutParams(p);
-        box.setOnClickListener(v -> { if (sports) showSportsPlayer(item); else showDetail(item); });
+        box.setOnClickListener(v -> { if (sports) showSportsPlayer(item); else openTitle(item); });
         box.setOnFocusChangeListener((v, focus) -> {
             picture.setForeground(shape(Color.TRANSPARENT, focus ? WHITE : Color.TRANSPARENT));
             box.animate().scaleX(focus ? 1.025f : 1).scaleY(focus ? 1.025f : 1).setDuration(220).start();
@@ -900,6 +899,15 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void openTitle(Item item) {
+        // Opening a watched movie is a continue-watching action. Keep showDetail
+        // separate so Back from playback never loops straight into playback again.
+        WatchHistory.Entry saved = item.kind.equals("movie")
+            ? watchHistory.get(WatchHistory.key(item.kind, item.id, 1, 1)) : null;
+        if (saved != null && saved.resumePosition() > 0) showPlayer(item, 1, 1, saved.source);
+        else showDetail(item);
+    }
+
     private void showDetail(Item item) {
         android.view.inputmethod.InputMethodManager keyboard =
             (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
@@ -1117,32 +1125,10 @@ public final class MainActivity extends Activity {
     }
 
     private void showPlayer(Item item, int s, int e, int source) {
+        if (recovery != null) recovery.save();
         String key = WatchHistory.key(item.kind, item.id, s, e);
         WatchHistory.Entry saved = watchHistory.get(key);
-        if (saved == null || saved.resumePosition() == 0) { showPlayerAtPosition(item, s, e, source, saved == null ? -1 : 0); return; }
-        releaseTrailerPreview();
-        PlaybackBackend current = playbackBackend();
-        boolean wasPlaying = playerOpen && current != null && !current.state().paused;
-        if (wasPlaying) current.command("pause", "");
-        if (playerOverlay != null) playerOverlay.suspendForMenu();
-        final boolean[] chosen = {false};
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle(item.title + (item.kind.equals("tv") ? " - S" + s + " E" + e : ""))
-            .setMessage("Continue from where you left off?")
-            .setPositiveButton("Resume at " + WatchHistory.time(saved.resumePosition()), (d, w) -> {
-                chosen[0] = true; showPlayerAtPosition(item, s, e, source, saved.resumePosition());
-            }).setNeutralButton("Start from beginning", (d, w) -> {
-                chosen[0] = true; finishRecovery(); watchHistory.startOver(key); showPlayerAtPosition(item, s, e, source, 0);
-            }).setNegativeButton("Cancel", null).create();
-        dialog.setOnDismissListener(d -> {
-            if (resumeDialog == dialog) resumeDialog = null;
-            if (!chosen[0]) {
-                if (wasPlaying && current == playbackBackend()) current.command("play", "");
-                if (playerOverlay != null) playerOverlay.resumeFromMenu();
-            }
-        });
-        resumeDialog = dialog;
-        dialog.show(); AppStyle.dialog(dialog, 520, -2);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).requestFocus();
+        showPlayerAtPosition(item, s, e, source, saved == null ? -1 : saved.resumePosition());
     }
 
     private void showPlayerAtPosition(Item item, int s, int e, int source, long position) {
@@ -1169,12 +1155,15 @@ public final class MainActivity extends Activity {
         // auto-hiding overlay; there is no separate windowed player screen.
         playerScreen = new FrameLayout(this);
         playerScreen.setBackgroundColor(Color.BLACK);
+        playerScreen.setFocusableInTouchMode(true);
+        if (android.os.Build.VERSION.SDK_INT >= 26) playerScreen.setDefaultFocusHighlightEnabled(false);
         root.addView(playerScreen, new FrameLayout.LayoutParams(-1, -1));
         String[] names = sourceNames(item);
         player = new WebView(this);
         final WebView sessionPlayer = player;
         player.setBackgroundColor(Color.BLACK);
         player.setFocusable(true);
+        if (android.os.Build.VERSION.SDK_INT >= 26) player.setDefaultFocusHighlightEnabled(false);
         player.getSettings().setJavaScriptEnabled(true);
         player.getSettings().setDomStorageEnabled(true);
         player.getSettings().setMediaPlaybackRequiresUserGesture(false);
@@ -1187,6 +1176,7 @@ public final class MainActivity extends Activity {
             @Override public void onShowCustomView(View view, CustomViewCallback callback) {
                 if (!playerOpen || player != sessionPlayer || customVideoView != null) { callback.onCustomViewHidden(); return; }
                 customVideoView = view;
+                if (android.os.Build.VERSION.SDK_INT >= 26) view.setDefaultFocusHighlightEnabled(false);
                 customVideoCallback = callback;
                 playerScreen.setVisibility(View.GONE);
                 root.addView(view, new FrameLayout.LayoutParams(-1, -1));
@@ -1219,13 +1209,17 @@ public final class MainActivity extends Activity {
         playerScreen.addView(playerStatus, new FrameLayout.LayoutParams(-1, -1));
         loadSource(item, source, s, e);
         buildPlayerOverlay(item);
+        if (position > 0) playerOverlay.offerRestart(() -> { if (recovery != null) recovery.startOver(); });
         enterPlayerFullscreen();
     }
 
     private void enterPlayerFullscreen() {
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        if (playerOverlay != null) playerOverlay.activate();
+        if (playerOverlay != null) {
+            if (providerInput) { playerOverlay.deactivate(); focusVideo(); }
+            else playerOverlay.activate();
+        }
     }
 
     private void buildPlayerOverlay(Item item) {
@@ -1240,13 +1234,26 @@ public final class MainActivity extends Activity {
     }
 
     private void focusVideo() {
-        if (nativePlayer != null) nativePlayer.view.requestFocus();
+        if (!providerInput && playerScreen != null) {
+            // A focused WebView can wake its own controls and draw a full-screen
+            // Android focus border. Park input on a nonvisual native container.
+            if (playerScreen.isShown()) playerScreen.requestFocus();
+            else {
+                root.setFocusableInTouchMode(true);
+                if (android.os.Build.VERSION.SDK_INT >= 26) root.setDefaultFocusHighlightEnabled(false);
+                root.requestFocus();
+            }
+        }
+        else if (nativePlayer != null) nativePlayer.view.requestFocus();
         else if (customVideoView != null) customVideoView.requestFocus();
         else if (player != null) player.requestFocus();
     }
 
     private void revealPlayerOverlay(boolean focus) {
-        if (playerOpen && playerOverlay != null) playerOverlay.show(focus);
+        if (playerOpen && playerOverlay != null) {
+            if (providerInput) { playerOverlay.deactivate(); focusVideo(); }
+            else playerOverlay.show(focus);
+        }
     }
 
     private void choosePlayerSource(Item item) {
@@ -1254,8 +1261,9 @@ public final class MainActivity extends Activity {
     }
 
     private void loadSource(Item item, int source, int s, int e) {
-        long resumePosition = recovery == null ? initialPlaybackPosition : recovery.restartPosition();
-        finishRecovery(); initialPlaybackPosition = -1;
+        // Capture and persist once, before releasing the outgoing provider.
+        long resumePosition = recovery == null ? initialPlaybackPosition : recovery.handoff();
+        recovery = null; initialPlaybackPosition = -1;
         clearCustomVideoView();
         currentSourceIndex = source;
         int request = ++sourceRequest;
@@ -1278,8 +1286,14 @@ public final class MainActivity extends Activity {
                 this::useProviderControls, this::closePlayer);
             player.setVisibility(View.VISIBLE); playerStatus.setVisibility(View.GONE);
             riftPlayer.load(sourceUrl(item, source, s, e), item.id, item.kind, s, e);
+            // Old WebViews cannot inject into the cross-origin provider frame.
+            // Use one provider-owned surface there, never two overlapping layers.
+            providerInput = !riftPlayer.nativeControlsSupported();
             revealPlayerOverlay(false);
-        } else loadEmbed(item, source, s, e);
+        } else {
+            if (source == 1 && !item.kind.equals("sport")) providerInput = true;
+            loadEmbed(item, source, s, e);
+        }
         String historyKey = WatchHistory.key(item.kind, item.id, s, e);
         if (!historyKey.isEmpty()) {
             JSONObject catalog = new JSONObject();
@@ -1299,6 +1313,7 @@ public final class MainActivity extends Activity {
 
     private void useProviderControls() {
         providerInput = true;
+        if (riftPlayer != null) riftPlayer.nativeControls(false);
         if (playerOverlay != null) playerOverlay.deactivate();
         focusVideo();
         android.widget.Toast.makeText(this, "Rift controls: use arrows and OK. Back or Menu returns to Flipflix controls.", android.widget.Toast.LENGTH_LONG).show();
@@ -1492,7 +1507,11 @@ public final class MainActivity extends Activity {
         if (playerOpen && providerInput) {
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU) {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (riftPlayer == null || !riftPlayer.nativeControlsSupported()) {
+                        closePlayer(); providerReturnKey = code; return true;
+                    }
                     providerInput = false; providerReturnKey = code;
+                    if (riftPlayer != null) riftPlayer.nativeControls(true);
                     if (playerOverlay != null) playerOverlay.activate();
                 }
                 return true;
@@ -1548,7 +1567,6 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        if (resumeDialog != null) { resumeDialog.dismiss(); resumeDialog = null; }
         finishRecovery();
         if (updater != null) updater.close();
         releaseTrailerPreview();

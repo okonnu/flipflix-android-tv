@@ -1,6 +1,5 @@
 package com.okonu.flipflix;
 
-import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.os.SystemClock;
 import android.view.KeyEvent;
@@ -26,6 +25,10 @@ public final class WatchHistoryTest {
         try { java.lang.reflect.Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(target); }
         catch (Exception e) { throw new AssertionError(e); }
     }
+    private void setField(Object target, String name, Object value) {
+        try { java.lang.reflect.Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); f.set(target, value); }
+        catch (Exception e) { throw new AssertionError(e); }
+    }
     private Object invoke(String name, Object... args) {
         try {
             for (java.lang.reflect.Method m : MainActivity.class.getDeclaredMethods()) if (m.getName().equals(name)) { m.setAccessible(true); return m.invoke(rule.getActivity(), args); }
@@ -43,7 +46,7 @@ public final class WatchHistoryTest {
     private PlaybackBackend.State state(long position) {
         PlaybackBackend.State s = new PlaybackBackend.State(); s.available = s.seekable = true; s.paused = false; s.position = position; s.duration = 600000; return s;
     }
-    @Test public void moviesEpisodesAndSourcesHaveIndependentPersistentPositions() {
+    @Test public void moviesAndEpisodesAreIndependentButProvidersShareOnePosition() {
         store.save("movie:12", catalog("movie", 12), 1, 1, 0, state(120000));
         store.save("tv:12:1:1", catalog("tv", 12), 1, 1, 1, state(240000));
         store.save("tv:12:1:2", catalog("tv", 12), 1, 2, 2, state(350000));
@@ -54,6 +57,69 @@ public final class WatchHistoryTest {
         store.save("movie:12", catalog("movie", 12), 1, 1, 1, state(150000));
         assertEquals(3, store.all().size()); assertEquals(1, store.get("movie:12").source);
         assertEquals("", WatchHistory.key("sport", 12, 1, 1));
+    }
+    @Test public void providerHandoffKeepsConfirmedProgressWhenOutgoingPlayerLosesMetadata() {
+        main(() -> {
+            final PlaybackBackend.State[] current = {state(123000)};
+            PlaybackBackend outgoing = new PlaybackBackend() {
+                public State state() { return current[0]; }
+                public void command(String name, String value) { }
+            };
+            PlaybackRecovery r = new PlaybackRecovery(store, "movie:12", catalog("movie", 12), 1, 1, 0, -1, () -> outgoing, message -> {});
+            r.sample(SystemClock.uptimeMillis());
+            current[0] = new PlaybackBackend.State(); // Provider stalled or released its video.
+            assertEquals(123000, r.restartPosition());
+            current[0] = state(1000); current[0].duration = 15000; // Do not hand off an ad clock.
+            assertEquals(123000, r.restartPosition());
+            r.close(); assertEquals(123000, store.get("movie:12").position);
+        });
+    }
+    @Test public void multipleProviderSwitchesCarryPendingResumeUntilAcknowledged() {
+        main(() -> {
+            class Backend implements PlaybackBackend {
+                State s = WatchHistoryTest.this.state(225000); long sought = -1;
+                public State state() { return s; }
+                public void command(String name, String value) { if (name.equals("seek")) sought = Long.parseLong(value); }
+            }
+            Backend b = new Backend();
+            long now = SystemClock.uptimeMillis();
+            PlaybackRecovery bolt = new PlaybackRecovery(store, "tv:12:2:3", catalog("tv", 12), 2, 3, 0, -1, () -> b, m -> {});
+            bolt.sample(now); long position = bolt.restartPosition(); bolt.close();
+            b.s = new PlaybackBackend.State();
+            PlaybackRecovery rift = new PlaybackRecovery(store, "tv:12:2:3", catalog("tv", 12), 2, 3, 1, position, () -> b, m -> {});
+            rift.sample(now); position = rift.restartPosition(); rift.close();
+            assertEquals(225000, position); assertEquals(0, store.get("tv:12:2:3").source);
+            PlaybackRecovery fast = new PlaybackRecovery(store, "tv:12:2:3", catalog("tv", 12), 2, 3, 2, position, () -> b, m -> {});
+            b.s = state(0); fast.sample(now + 1000); assertEquals(225000, b.sought);
+            assertEquals(225000, store.get("tv:12:2:3").position);
+            b.s = state(226000); fast.sample(now + 2000); fast.close();
+            assertEquals(226000, store.get("tv:12:2:3").position);
+            assertEquals(2, store.get("tv:12:2:3").source); assertEquals(1, store.all().size());
+        });
+    }
+    @Test public void activitySwitchesBoltRiftFastWithoutLosingMovieCheckpoint() throws Exception {
+        Class<?> type = Class.forName("com.okonu.flipflix.MainActivity$Item");
+        java.lang.reflect.Method from = type.getDeclaredMethod("from", JSONObject.class, String.class); from.setAccessible(true);
+        Object item = from.invoke(null, catalog("movie", 12), "movie");
+        main(() -> {
+            invoke("showPlayerAtPosition", item, 1, 1, 0, -1L);
+            WebView web = (WebView) field(rule.getActivity(), "player"); web.stopLoading(); web.loadUrl("about:blank");
+            setField(field(rule.getActivity(), "embeddedPlayer"), "latest", state(225000));
+            invoke("loadSource", item, 1, 1, 1); web.stopLoading(); web.loadUrl("about:blank");
+            assertEquals(225000, store.get("movie:12").position);
+            PlaybackRecovery r = (PlaybackRecovery) field(rule.getActivity(), "recovery");
+            assertEquals(225000, r.restartPosition());
+            Object rift = field(rule.getActivity(), "riftPlayer"); assertNotNull(rift);
+            setField(rift, "latest", state(0)); long now = SystemClock.uptimeMillis(); r.sample(now);
+            setField(rift, "latest", state(226000)); r.sample(now + 1000);
+            setField(rift, "latest", state(240000)); r.sample(now + 2000);
+            setField(rift, "latest", new PlaybackBackend.State());
+            invoke("loadSource", item, 2, 1, 1); web.stopLoading(); web.loadUrl("about:blank");
+            assertEquals(240000, ((PlaybackRecovery) field(rule.getActivity(), "recovery")).restartPosition());
+            assertEquals(240000, store.get("movie:12").position);
+            assertEquals(1, store.all().size());
+            invoke("closePlayer");
+        });
     }
     @Test public void completedAndRestartedTitlesStayInHistoryButDoNotResume() {
         store.save("movie:12", catalog("movie", 12), 1, 1, 1, state(590000));
@@ -117,32 +183,91 @@ public final class WatchHistoryTest {
             assertTrue(card.history); assertEquals(240000, card.resumePosition); assertTrue(card.title.contains("S2 E3"));
             invoke("openDiscoveryItem", card);
             WebView web = (WebView) field(rule.getActivity(), "player"); web.stopLoading(); web.loadUrl("about:blank");
-            assertEquals(true, field(rule.getActivity(), "playerOpen")); assertNull(field(rule.getActivity(), "resumeDialog"));
+            assertEquals(true, field(rule.getActivity(), "playerOpen"));
             assertEquals(2, field(rule.getActivity(), "season")); assertEquals(3, field(rule.getActivity(), "episode"));
             assertEquals(240000, ((PlaybackRecovery) field(rule.getActivity(), "recovery")).restartPosition());
             invoke("closePlayer"); assertEquals("History", field(rule.getActivity(), "section"));
             assertNotNull(field(rule.getActivity(), "discovery"));
         });
     }
-    @Test public void catalogOffersResumeOrStartOverWithoutOpeningPlayerUntilChosen() throws Exception {
+    @Test public void playbackResumesImmediatelyOnEveryProviderWithNonblockingStartOver() throws Exception {
         JSONObject json = catalog("movie", 12);
         Class<?> type = Class.forName("com.okonu.flipflix.MainActivity$Item");
         java.lang.reflect.Method from = type.getDeclaredMethod("from", JSONObject.class, String.class); from.setAccessible(true);
         Object item = from.invoke(null, json, "movie");
+        for (int source = 0; source < 3; source++) {
+            final int chosen = source;
+            main(() -> {
+                store.save("movie:12", json, 1, 1, 1, state(120000));
+                invoke("showPlayer", item, 1, 1, chosen);
+                WebView web = (WebView) field(rule.getActivity(), "player"); web.stopLoading(); web.loadUrl("about:blank");
+                assertEquals(true, field(rule.getActivity(), "playerOpen"));
+                assertEquals(chosen, field(rule.getActivity(), "currentSourceIndex"));
+                assertEquals(120000, ((PlaybackRecovery) field(rule.getActivity(), "recovery")).restartPosition());
+                PlaybackControls overlay = (PlaybackControls) field(rule.getActivity(), "playerOverlay");
+                assertEquals("Start from beginning", ((android.view.View) field(overlay, "restart")).getContentDescription());
+                invoke("closePlayer");
+            });
+        }
         main(() -> {
-            store.save("movie:12", json, 1, 1, 1, state(120000));
             invoke("showPlayer", item, 1, 1, 0);
-            assertEquals(false, field(rule.getActivity(), "playerOpen"));
-            AlertDialog dialog = (AlertDialog) field(rule.getActivity(), "resumeDialog");
-            assertTrue(dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString().contains("2:00"));
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).performClick();
+            WebView web = (WebView) field(rule.getActivity(), "player"); web.stopLoading(); web.loadUrl("about:blank");
         });
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP);
+        main(() -> assertEquals("Start from beginning", rule.getActivity().getCurrentFocus().getContentDescription()));
+        if ("true".equals(InstrumentationRegistry.getArguments().getString("captureUi"))) {
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            try (java.io.InputStream output = new android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                    InstrumentationRegistry.getInstrumentation().getUiAutomation()
+                    .executeShellCommand("screencap -p /sdcard/Download/flipflix-start-over.png"))) {
+                byte[] buffer = new byte[1024]; while (output.read(buffer) != -1) { }
+            }
+        }
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER);
         main(() -> {
             WebView web = (WebView) field(rule.getActivity(), "player"); web.stopLoading(); web.loadUrl("about:blank");
             assertEquals(true, field(rule.getActivity(), "playerOpen")); assertEquals(0, store.get("movie:12").resumePosition());
             assertEquals(0, ((PlaybackRecovery) field(rule.getActivity(), "recovery")).restartPosition());
             invoke("closePlayer");
+        });
+    }
+    @Test public void explicitStartOverCannotBeOverwrittenByOldProviderClock() {
+        main(() -> {
+            final PlaybackBackend.State[] current = {state(150000)};
+            final long[] sought = {-1}; final int[] plays = {0};
+            PlaybackBackend b = new PlaybackBackend() {
+                public State state() { return current[0]; }
+                public void command(String name, String value) {
+                    if (name.equals("seek")) sought[0] = Long.parseLong(value);
+                    if (name.equals("play")) plays[0]++;
+                }
+            };
+            PlaybackRecovery r = new PlaybackRecovery(store, "movie:12", catalog("movie", 12), 1, 1, 1, -1, () -> b, message -> {});
+            long now = SystemClock.uptimeMillis(); r.sample(now); r.startOver();
+            assertEquals(0, sought[0]); assertEquals(0, r.restartPosition());
+            r.save(); assertEquals(0, store.get("movie:12").position);
+            current[0] = state(0); r.sample(now + 1000);
+            assertEquals(1, plays[0]);
+            current[0] = state(2000); r.sample(now + 2000); r.close();
+            assertEquals(2000, store.get("movie:12").position);
+        });
+    }
+    @Test public void openingWatchedMovieResumesAndBackStillShowsDetails() throws Exception {
+        Class<?> type = Class.forName("com.okonu.flipflix.MainActivity$Item");
+        java.lang.reflect.Method from = type.getDeclaredMethod("from", JSONObject.class, String.class); from.setAccessible(true);
+        Object item = from.invoke(null, catalog("movie", 12), "movie");
+        main(() -> {
+            store.save("movie:12", catalog("movie", 12), 1, 1, 2, state(120000));
+            invoke("openTitle", item);
+            WebView web = (WebView) field(rule.getActivity(), "player"); web.stopLoading(); web.loadUrl("about:blank");
+            assertEquals(true, field(rule.getActivity(), "playerOpen"));
+            assertEquals(2, field(rule.getActivity(), "currentSourceIndex"));
+            assertEquals(120000, ((PlaybackRecovery) field(rule.getActivity(), "recovery")).restartPosition());
+            invoke("closePlayer");
+            assertEquals(false, field(rule.getActivity(), "playerOpen"));
+            assertEquals(true, field(rule.getActivity(), "detailOpen"));
         });
     }
     @Test public void liveRiftRestoresSavedPosition() throws Exception {

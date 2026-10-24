@@ -14,7 +14,7 @@ Attribution 3.0 (CC BY 3.0):
 https://creativecommons.org/licenses/by/3.0/
 https://creativecommons.org/licenses/by/3.0/legalcode
 
-Original, unmodified trailer and poster files downloaded from the W3C mirror:
+Original trailer and poster sources downloaded from the W3C mirror:
 https://media.w3.org/2010/05/sintel/trailer.mp4
 https://media.w3.org/2010/05/sintel/poster.png
 https://media.w3.org/2010/05/bunny/trailer.mp4
@@ -22,8 +22,10 @@ https://media.w3.org/2010/05/bunny/poster.png
 
 In the discovery hero, Flipflix renders a muted, center-cropped excerpt of up
 to 25 seconds with a readability gradient. The Watch trailer action plays the
-complete, unmodified trailer using the native fullscreen player. The asset
-files themselves are unchanged. These are openly licensed sample replacements,
+complete trailer using the native fullscreen player. In v0.1.21 the Big Buck
+Bunny trailer was re-encoded as H.264 Main, yuv420p, 854x480 (from 853x480) for
+Android decoder compatibility; its audio was copied without re-encoding.
+The other asset files are unchanged. These are openly licensed sample replacements,
 not Flipflix originals, and do not imply endorsement by the creators or W3C.
 
 Credits are also shown beside the hero and in Local profile > Media credits.

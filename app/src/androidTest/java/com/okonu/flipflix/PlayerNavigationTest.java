@@ -143,6 +143,20 @@ public final class PlayerNavigationTest {
         }
     }
 
+    @Test public void hiddenControlsDoNotFocusTheWebVideoOrDrawAnAndroidBorder() throws Exception {
+        start(item("movie"));
+        key(KeyEvent.KEYCODE_DPAD_DOWN);
+        main(() -> {
+            assertEquals(View.GONE, ((View) field(activity(), "playerOverlay")).getVisibility());
+            WebView web = (WebView) field(activity(), "player");
+            assertFalse("Hiding native controls must not wake the provider controls", web.hasFocus());
+            assertSame(field(activity(), "playerScreen"), activity().getCurrentFocus());
+            if (android.os.Build.VERSION.SDK_INT >= 26) assertFalse(web.getDefaultFocusHighlightEnabled());
+        });
+        key(KeyEvent.KEYCODE_DPAD_CENTER);
+        main(() -> assertEquals(View.VISIBLE, ((View) field(activity(), "playerOverlay")).getVisibility()));
+    }
+
     @Test public void episodeSourceRetryAndCloseStayInOnePlayer() throws Exception {
         start(item("tv"));
         select("Next episode"); main(this::stopEmbedNetwork);
@@ -169,16 +183,22 @@ public final class PlayerNavigationTest {
 
     @Test public void riftUsesOfficialBridgeAndBackLeavesProviderControlsFirst() throws Exception {
         Object item = item("tv");
+        AtomicBoolean nativeSupported = new AtomicBoolean();
         main(() -> {
             invoke("showPlayer", item, 2, 3, 1);
             stopEmbedNetwork();
             assertNotNull(field(activity(), "riftPlayer"));
+            nativeSupported.set(((RiftPlayback) field(activity(), "riftPlayer")).nativeControlsSupported());
             assertNull("Do not discard Rift servers/audio by scraping one native URL", field(activity(), "nativePlayer"));
             invoke("useProviderControls");
             assertEquals(true, field(activity(), "providerInput"));
             assertEquals(View.GONE, ((View) field(activity(), "playerOverlay")).getVisibility());
         });
         key(KeyEvent.KEYCODE_BACK);
+        if (!nativeSupported.get()) {
+            main(() -> assertClosed(false)); // Legacy engines use one provider-owned surface.
+            return;
+        }
         main(() -> { assertEquals(false, field(activity(), "providerInput")); assertFullscreen(); });
         key(KeyEvent.KEYCODE_BACK);
         main(() -> { assertClosed(false); assertNull(field(activity(), "riftPlayer")); });
@@ -222,6 +242,10 @@ public final class PlayerNavigationTest {
             ViewGroup root = (ViewGroup) field(activity(), "root");
             assertSame(field(activity(), "playerOverlay"), root.getChildAt(root.getChildCount() - 1));
             assertEquals(View.GONE, ((View) field(activity(), "playerScreen")).getVisibility());
+            activity().dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_DOWN));
+            activity().dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_DOWN));
+            assertSame(root, activity().getCurrentFocus());
+            assertFalse(root.getDefaultFocusHighlightEnabled());
             client[0].onHideCustomView();
         });
         instrumentation().waitForIdleSync();
