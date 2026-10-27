@@ -1,8 +1,8 @@
 # Startup media
 
 The startup animation uses the approved geometric Darkflix logo assembly and wordmark
-from the separate `darkflix-logo-preview` project. The Android application name,
-package, signing key, and stored viewing history are unchanged.
+from the separate `darkflix-logo-preview` project. As of v0.1.26 the displayed app
+name is also Darkflix. The package, signing key, and stored viewing history are unchanged.
 
 ## Soundtrack
 

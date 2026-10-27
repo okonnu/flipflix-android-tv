@@ -78,7 +78,7 @@ final class DiscoveryView extends FrameLayout {
         hero = column(); addView(hero);
         category = text("DISCOVER SOMETHING GREAT", 10, MUTED, true); category.setLetterSpacing(.17f); hero.addView(category);
         logo = image(); logo.setVisibility(GONE); hero.addView(logo, new LinearLayout.LayoutParams(dp(150), dp(26)));
-        title = text("Dagflix", 34, Color.WHITE, true); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END);
+        title = text("Darkflix", 34, Color.WHITE, true); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END);
         LinearLayout.LayoutParams nameP = new LinearLayout.LayoutParams(-1, -2); nameP.topMargin = dp(8); hero.addView(title, nameP);
         metadata = text("Movies, series, and stories worth discovering", 12, 0xffd0d5df, false); metadata.setMaxLines(2);
         LinearLayout.LayoutParams metaP = new LinearLayout.LayoutParams(-1, -2); metaP.topMargin = dp(8); hero.addView(metadata, metaP);

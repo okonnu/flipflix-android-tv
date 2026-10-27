@@ -92,7 +92,7 @@ class CatalogApi {
         connection.setConnectTimeout(7000);
         connection.setReadTimeout(12000);
         connection.setRequestProperty("Accept", "application/json,image/*,*/*");
-        connection.setRequestProperty("User-Agent", "Dagflix/0.1");
+        connection.setRequestProperty("User-Agent", "Darkflix/0.1");
         try {
             if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300)
                 throw new IllegalStateException("HTTP " + connection.getResponseCode());

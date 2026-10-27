@@ -1,8 +1,13 @@
-# Dagflix
+# Darkflix
 
-Dagflix (formerly Flipflix) is a native Android TV / Fire TV discovery app with remote-friendly browsing, title details, trailers, Library, watch history, and third-party playback providers.
+Darkflix (formerly Dagflix and Flipflix) is a native Android TV / Fire TV discovery app with remote-friendly browsing, title details, trailers, Library, watch history, and third-party playback providers.
 
 Download the latest APK: https://tinyurl.com/24qywecz
+
+## Darkflix name (v0.1.26)
+
+- The launcher, system app name, in-app branding, update prompts, and playback help now say Darkflix, matching the existing geometric icon and startup logo.
+- This is an in-place update. The package `com.okonu.flipflix`, signing certificate, local storage, repository, and stable download URL stay unchanged, preserving settings, Library, watch history, and automatic updates. The internal `DagflixBolt` bridge identifier is deliberately unchanged; it is not displayed to viewers.
 
 ## Matching launcher artwork (v0.1.25)
 

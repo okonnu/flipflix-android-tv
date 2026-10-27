@@ -316,7 +316,7 @@ public final class MainActivity extends Activity {
         pageChrome.addView(navigationRail, new FrameLayout.LayoutParams(dp(62), -1));
         LinearLayout header = row();
         content.addView(header, new LinearLayout.LayoutParams(-1, dp(52)));
-        boolean brandTitle = title.equals("Dagflix");
+        boolean brandTitle = title.equals("Darkflix");
         TextView brand = text(brandTitle ? "DETAILS" : title, brandTitle ? 11 : 30, brandTitle ? MUTED : WHITE, true);
         if (brandTitle) brand.setLetterSpacing(.17f);
         header.addView(brand, new LinearLayout.LayoutParams(0, -1, 1));
@@ -333,7 +333,7 @@ public final class MainActivity extends Activity {
         playerOpen = false;
         generation++;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        shell(name.equals("Home") ? "Dagflix" : name);
+        shell(name.equals("Home") ? "Darkflix" : name);
         if (name.equals("Search")) searchScreen();
         else if (name.equals("Home") || name.equals("Library") || name.equals("History")) showDiscovery(name.equals("Library"));
         else showCollection(name);
@@ -936,7 +936,7 @@ public final class MainActivity extends Activity {
         detailOpen = true;
         playerOpen = false;
         generation++;
-        shell("Dagflix");
+        shell("Darkflix");
         // Artwork belongs to the full window, not the inset, scrolling preview card.
         ImageView hero = new ImageView(this);
         hero.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -1343,7 +1343,7 @@ public final class MainActivity extends Activity {
         if (riftPlayer != null) riftPlayer.nativeControls(false);
         if (playerOverlay != null) playerOverlay.deactivate();
         focusVideo();
-        android.widget.Toast.makeText(this, "Rift controls: use arrows and OK. Back or Menu returns to Dagflix controls.", android.widget.Toast.LENGTH_LONG).show();
+        android.widget.Toast.makeText(this, "Rift controls: use arrows and OK. Back or Menu returns to Darkflix controls.", android.widget.Toast.LENGTH_LONG).show();
     }
 
     private void releaseRiftPlayer() {

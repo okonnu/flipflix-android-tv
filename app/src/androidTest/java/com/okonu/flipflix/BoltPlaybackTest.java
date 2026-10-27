@@ -95,8 +95,17 @@ public final class BoltPlaybackTest {
     }
     @Test public void renameKeepsUpgradeIdentity() {
         android.content.Context context = rule.getActivity();
-        assertEquals("Dagflix Test", context.getApplicationInfo().loadLabel(context.getPackageManager()).toString());
+        assertEquals("Darkflix Test", context.getApplicationInfo().loadLabel(context.getPackageManager()).toString());
         assertEquals("com.okonu.flipflix.validation", context.getPackageName());
+        main(() -> assertTrue("Home branding matches the launcher and logo", containsText(rule.getActivity().getWindow().getDecorView(), "DARKFLIX")));
+    }
+    private boolean containsText(android.view.View view, String text) {
+        if (view instanceof android.widget.TextView && text.contentEquals(((android.widget.TextView) view).getText())) return true;
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) if (containsText(group.getChildAt(i), text)) return true;
+        }
+        return false;
     }
     private static final String FIXTURE = "<html><body><script>var t=Number(new URL(location.href).searchParams.get('startAt')||0);"
         + "function emit(x){parent.postMessage(x,'*')}"

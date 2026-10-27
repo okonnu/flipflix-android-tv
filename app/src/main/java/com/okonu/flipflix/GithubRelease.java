@@ -20,7 +20,7 @@ final class GithubRelease {
             || location.getPort() != -1 || location.getUserInfo() != null || location.getQuery() != null
             || location.getRef() != null || !location.getPath().equals("/" + REPOSITORY + "/releases/download/v" + version + "/app-release.apk")
             || !digest.matches("sha256:[0-9a-fA-F]{64}") || size <= 0 || size > MAX_APK)
-            throw new IOException("The GitHub release does not contain a valid Dagflix APK.");
+            throw new IOException("The GitHub release does not contain a valid Darkflix APK.");
         this.version = version; this.url = url; this.digest = digest; this.size = size;
     }
 

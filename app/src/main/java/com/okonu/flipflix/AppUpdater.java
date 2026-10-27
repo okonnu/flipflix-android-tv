@@ -62,7 +62,7 @@ final class AppUpdater implements AutoCloseable {
     void showStatus() {
         if (closed || dialog != null) return;
         if (ready != null) { manual = true; offer(); return; }
-        dialog = new AlertDialog.Builder(activity).setTitle("Dagflix " + repository.installedVersion())
+        dialog = new AlertDialog.Builder(activity).setTitle("Darkflix " + repository.installedVersion())
             .setMessage(status + "\n\nAndroid requires your confirmation to install an update. Checks never interrupt a movie.")
             .setPositiveButton(busy ? "Working..." : "Check now", (d, w) -> ui.post(() -> check(true)))
             .setNegativeButton("Close", null).create();
@@ -84,7 +84,7 @@ final class AppUpdater implements AutoCloseable {
                 if (result == null && due) {
                     result = repository.latest();
                     if (result != null) {
-                        ui.post(() -> { if (!closed) status = "Downloading and verifying Dagflix update..."; });
+                        ui.post(() -> { if (!closed) status = "Downloading and verifying Darkflix update..."; });
                         repository.prepare(result);
                     }
                 }
@@ -93,7 +93,7 @@ final class AppUpdater implements AutoCloseable {
                     if (closed) return;
                     busy = false; ready = completed;
                     if (due) prefs.edit().putLong("next_check", System.currentTimeMillis() + CHECK_INTERVAL).apply();
-                    status = ready == null ? "You have the latest release." : "Dagflix " + ready.version + " is ready to install.";
+                    status = ready == null ? "You have the latest release." : "Darkflix " + ready.version + " is ready to install.";
                     if (manual && ready == null && foreground) toast(status);
                     stateChanged();
                 });
@@ -110,7 +110,7 @@ final class AppUpdater implements AutoCloseable {
     private void offer() {
         if (!available() || dialog != null || ready == null || busy) return;
         manual = false;
-        dialog = new AlertDialog.Builder(activity).setTitle("Dagflix " + ready.version + " is ready")
+        dialog = new AlertDialog.Builder(activity).setTitle("Darkflix " + ready.version + " is ready")
             .setMessage("The update was downloaded from GitHub and verified. Install it now? Your library and saved settings will stay intact.")
             .setPositiveButton("Install update", (d, w) -> ui.post(this::install))
             .setNegativeButton("Later", (d, w) -> snooze()).create();
@@ -128,8 +128,8 @@ final class AppUpdater implements AutoCloseable {
         if (closed || busy || ready == null || !foreground) return;
         snooze(); // Cancel/back from system screens must not cause an install loop.
         if (Build.VERSION.SDK_INT >= 26 && !activity.getPackageManager().canRequestPackageInstalls()) {
-            dialog = new AlertDialog.Builder(activity).setTitle("Allow Dagflix updates")
-                .setMessage("On the next screen, allow Dagflix to install unknown apps, then press Back. This permission is needed for updates downloaded from GitHub.")
+            dialog = new AlertDialog.Builder(activity).setTitle("Allow Darkflix updates")
+                .setMessage("On the next screen, allow Darkflix to install unknown apps, then press Back. This permission is needed for updates downloaded from GitHub.")
                 .setPositiveButton("Open settings", (d, w) -> {
                     waitingPermission = true;
                     try {
@@ -137,7 +137,7 @@ final class AppUpdater implements AutoCloseable {
                             Uri.parse("package:" + activity.getPackageName())), SETTINGS_REQUEST);
                     } catch (RuntimeException e) {
                         waitingPermission = false;
-                        toast("Open Fire TV Settings > My Fire TV > Developer Options > Install unknown apps, enable Dagflix, then retry App updates.");
+                        toast("Open Fire TV Settings > My Fire TV > Developer Options > Install unknown apps, enable Darkflix, then retry App updates.");
                     }
                 }).setNegativeButton("Later", null).create();
             display(); return;
@@ -168,7 +168,7 @@ final class AppUpdater implements AutoCloseable {
         Uri uri = FileProvider.getUriForFile(activity, activity.getPackageName() + ".updates", apk);
         Intent intent = new Intent(Intent.ACTION_INSTALL_PACKAGE).setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION).putExtra(Intent.EXTRA_RETURN_RESULT, true);
-        intent.setClipData(ClipData.newRawUri("Dagflix update", uri));
+        intent.setClipData(ClipData.newRawUri("Darkflix update", uri));
         return intent;
     }
     void activityResult(int request) {

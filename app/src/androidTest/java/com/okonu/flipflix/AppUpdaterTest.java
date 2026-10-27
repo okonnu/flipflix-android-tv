@@ -106,6 +106,12 @@ public final class AppUpdaterTest {
         waitFor(() -> !(boolean) field(updater, "busy"));
         main(() -> { assertNull(field(updater, "dialog")); assertEquals(1, source.downloads); browsing.set(true); updater.stateChanged(); });
         waitFor(() -> field(updater, "dialog") != null);
+        main(() -> {
+            java.util.ArrayList<android.view.View> labels = new java.util.ArrayList<>();
+            ((AlertDialog) field(updater, "dialog")).getWindow().getDecorView()
+                .findViewsWithText(labels, "Darkflix 0.1.20 is ready", android.view.View.FIND_VIEWS_WITH_TEXT);
+            assertFalse("Update prompts use the new displayed app name", labels.isEmpty());
+        });
         main(() -> ((AlertDialog) field(updater, "dialog")).getButton(AlertDialog.BUTTON_NEGATIVE).performClick());
         waitFor(() -> rule.getActivity().hasWindowFocus());
         main(() -> { updater.stateChanged(); assertNull(field(updater, "dialog")); updater.showStatus(); });
@@ -156,7 +162,7 @@ public final class AppUpdaterTest {
         }
         byte[] apk = bytes.toByteArray(); StringBuilder hash = new StringBuilder();
         for (byte b : MessageDigest.getInstance("SHA-256").digest(apk)) hash.append(String.format(java.util.Locale.US, "%02x", b & 255));
-        GithubRelease r = new GithubRelease("0.1.26", release("0.1.26").url, "sha256:" + hash, apk.length);
+        GithubRelease r = new GithubRelease("0.1.27", release("0.1.27").url, "sha256:" + hash, apk.length);
         UpdateRepository repository = new UpdateRepository(rule.getActivity()) {
             @Override HttpURLConnection open(String address) throws java.io.IOException {
                 return new HttpURLConnection(new URL(address)) {
@@ -168,7 +174,7 @@ public final class AppUpdaterTest {
             }
         };
         try {
-            repository.prepare(r); assertEquals("0.1.26", repository.pending().version);
+            repository.prepare(r); assertEquals("0.1.27", repository.pending().version);
             Intent intent = AppUpdater.installIntent(rule.getActivity(), repository.apk());
             assertEquals("content", intent.getData().getScheme()); assertEquals(Intent.ACTION_INSTALL_PACKAGE, intent.getAction());
             assertTrue((intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);
