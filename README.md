@@ -1,8 +1,18 @@
-# Flipflix research prototype
+# Dagflix research prototype
 
-Flipflix is a separate, native Android TV / Fire TV catalog prototype. It tests how much of a streaming website can be recreated with native remote navigation while leaving playback in a third-party embedded video frame.
+Dagflix (formerly Flipflix) is a separate, native Android TV / Fire TV catalog prototype. It tests how much of a streaming website can be recreated with native remote navigation while leaving playback in a third-party embedded video frame.
 
 Download the latest APK: https://tinyurl.com/24qywecz
+
+## Dagflix and Bolt handoff (v0.1.22)
+
+- The launcher, in-app branding, D monogram, and update prompts now say Dagflix. The package `com.okonu.flipflix`, signing key, local preferences, GitHub repository, and stable download link deliberately stay unchanged so an in-place update preserves history and Library.
+- `BoltPlayback` listens to [Bolt's documented playback messages](https://vidbolt.pro/) in an origin-, frame-, and session-scoped wrapper. Progress no longer depends solely on finding a readable HTML video inside the provider. The existing DOM bridge still supplies supported subtitle, quality, and sizing options. Play/pause/seek use the documented provider commands, and startup receives the shared resume timestamp. No new DOM scans, background network requests, or polling are added.
+- The regression fixture sends real cross-origin Bolt messages through the production Activity, switches to Rift, and verifies an acknowledged seek and persistent history. The old implementation failed this test because it ignored those messages. This verifies the integration contract, not the availability of every live stream; direct access to the live Bolt host failed TLS from this development machine.
+- Slow source preparation no longer exhausts the resume timeout before the first seek. Once the source can seek, retries and acknowledgement remain bounded; failed restoration keeps the shared checkpoint. This uses the existing foreground state-sampling loop, not additional provider/network polling.
+- Back during source-menu focus transfer now dismisses the menu instead of accidentally closing the movie. A deterministic regression reproduces that input race before the fix.
+- Verified on the API 34 TV emulator: 100 tests passed, three optional live-provider probes skipped; release lint and signed APK build passed. The TV was checked over ADB and had v0.1.21 before this update, matching the published release at the time.
+
 
 ## One playback surface and shared resume (v0.1.21)
 

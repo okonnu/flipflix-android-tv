@@ -70,7 +70,9 @@ public final class MainActivity extends Activity {
     private WebView player;
     private NativePlayback nativePlayer;
     private EmbeddedPlayback embeddedPlayer;
+    private BoltPlayback boltPlayer;
     private RiftPlayback riftPlayer;
+    private AlertDialog playerSourceDialog;
     private boolean providerInput;
     private int providerReturnKey = -1;
     private TextView playerStatus;
@@ -274,6 +276,7 @@ public final class MainActivity extends Activity {
         topAction = null;
         getWindow().getDecorView().setSystemUiVisibility(0);
         releaseRiftPlayer();
+        releaseBoltPlayer();
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         embeddedPlayer = null;
         playerScreen = null;
@@ -294,7 +297,7 @@ public final class MainActivity extends Activity {
         pageChrome.addView(navigationRail, new FrameLayout.LayoutParams(dp(62), -1));
         LinearLayout header = row();
         content.addView(header, new LinearLayout.LayoutParams(-1, dp(52)));
-        boolean brandTitle = title.equals("Flipflix");
+        boolean brandTitle = title.equals("Dagflix");
         TextView brand = text(brandTitle ? "DETAILS" : title, brandTitle ? 11 : 30, brandTitle ? MUTED : WHITE, true);
         if (brandTitle) brand.setLetterSpacing(.17f);
         header.addView(brand, new LinearLayout.LayoutParams(0, -1, 1));
@@ -311,7 +314,7 @@ public final class MainActivity extends Activity {
         playerOpen = false;
         generation++;
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        shell(name.equals("Home") ? "Flipflix" : name);
+        shell(name.equals("Home") ? "Dagflix" : name);
         if (name.equals("Search")) searchScreen();
         else if (name.equals("Home") || name.equals("Library") || name.equals("History")) showDiscovery(name.equals("Library"));
         else showCollection(name);
@@ -916,7 +919,7 @@ public final class MainActivity extends Activity {
         detailOpen = true;
         playerOpen = false;
         generation++;
-        shell("Flipflix");
+        shell("Dagflix");
         // Artwork belongs to the full window, not the inset, scrolling preview card.
         ImageView hero = new ImageView(this);
         hero.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -1082,7 +1085,11 @@ public final class MainActivity extends Activity {
         if (playing && playerOverlay != null) playerOverlay.suspendForMenu();
         String[] names = sourceNames(item);
         AlertDialog dialog = new AlertDialog.Builder(this).create();
-        dialog.setOnDismissListener(d -> { if (playing && playerOverlay != null) playerOverlay.resumeFromMenu(); });
+        if (playing) playerSourceDialog = dialog;
+        dialog.setOnDismissListener(d -> {
+            if (playerSourceDialog == dialog) playerSourceDialog = null;
+            if (playing && playerOpen && playerOverlay != null) playerOverlay.resumeFromMenu();
+        });
         LinearLayout panel = column();
         panel.setPadding(dp(24), dp(24), dp(24), dp(24));
         panel.addView(text("Choose a source", 24, WHITE, true));
@@ -1148,6 +1155,7 @@ public final class MainActivity extends Activity {
         if (playerOverlay != null) { playerOverlay.deactivate(); playerOverlay = null; }
         releaseNativePlayer();
         releaseRiftPlayer();
+        releaseBoltPlayer();
         if (player != null) { player.stopLoading(); player.destroy(); player = null; }
         root.removeAllViews();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -1197,7 +1205,7 @@ public final class MainActivity extends Activity {
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
-                if (riftPlayer != null) return true;
+                if (riftPlayer != null || boltPlayer != null) return true;
                 String host = request.getUrl().getHost();
                 return host == null || !(host.equals("pantyflix.com") || host.equals("vidbolt.xyz") || host.equals("bingr.one") || host.equals("embed.vidrift.in") || host.equals("embed.st"));
             }
@@ -1224,7 +1232,7 @@ public final class MainActivity extends Activity {
 
     private void buildPlayerOverlay(Item item) {
         String title = item.title + (item.kind.equals("tv") ? "  |  S" + season + " E" + episode : "");
-        playerOverlay = new PlaybackControls(this, () -> nativePlayer != null ? nativePlayer : riftPlayer != null ? riftPlayer : embeddedPlayer,
+        playerOverlay = new PlaybackControls(this, this::playbackBackend,
             this::focusVideo, title,
             item.kind.equals("tv") ? () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex) : null,
             item.kind.equals("tv") ? () -> showPlayer(item, season, episode + 1, currentSourceIndex) : null,
@@ -1270,6 +1278,7 @@ public final class MainActivity extends Activity {
         if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source]);
         releaseNativePlayer();
         releaseRiftPlayer();
+        releaseBoltPlayer();
         if (embeddedPlayer != null) embeddedPlayer.reset();
         if (player != null) { player.stopLoading(); player.loadUrl("about:blank"); player.setVisibility(View.GONE); }
         if (playerStatus != null) {
@@ -1280,7 +1289,12 @@ public final class MainActivity extends Activity {
             playNativeVideo(item, source, s, e, item.sampleUrl, "https://media.w3.org/", null, request);
             return;
         }
-        if (source == 1 && !item.kind.equals("sport") && RiftPlayback.supported()) {
+        if (source == 0 && !item.kind.equals("sport") && BoltPlayback.supported()) {
+            boltPlayer = new BoltPlayback(player, embeddedPlayer);
+            player.setVisibility(View.VISIBLE); playerStatus.setVisibility(View.GONE);
+            boltPlayer.load(sourceUrl(item, source, s, e), resumePosition);
+            revealPlayerOverlay(false);
+        } else if (source == 1 && !item.kind.equals("sport") && RiftPlayback.supported()) {
             riftPlayer = new RiftPlayback(player,
                 message -> android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show(),
                 this::useProviderControls, this::closePlayer);
@@ -1308,7 +1322,8 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private PlaybackBackend playbackBackend() { return nativePlayer != null ? nativePlayer : riftPlayer != null ? riftPlayer : embeddedPlayer; }
+    private PlaybackBackend playbackBackend() { return nativePlayer != null ? nativePlayer : riftPlayer != null ? riftPlayer : boltPlayer != null ? boltPlayer : embeddedPlayer; }
+    private void releaseBoltPlayer() { if (boltPlayer != null) { boltPlayer.close(); boltPlayer = null; } }
     private void finishRecovery() { if (recovery != null) { recovery.close(); recovery = null; } }
 
     private void useProviderControls() {
@@ -1316,7 +1331,7 @@ public final class MainActivity extends Activity {
         if (riftPlayer != null) riftPlayer.nativeControls(false);
         if (playerOverlay != null) playerOverlay.deactivate();
         focusVideo();
-        android.widget.Toast.makeText(this, "Rift controls: use arrows and OK. Back or Menu returns to Flipflix controls.", android.widget.Toast.LENGTH_LONG).show();
+        android.widget.Toast.makeText(this, "Rift controls: use arrows and OK. Back or Menu returns to Dagflix controls.", android.widget.Toast.LENGTH_LONG).show();
     }
 
     private void releaseRiftPlayer() {
@@ -1368,6 +1383,7 @@ public final class MainActivity extends Activity {
     private void closePlayer() {
         if (!playerOpen) return;
         playerOpen = false;
+        if (playerSourceDialog != null) playerSourceDialog.dismiss();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (section.equals("History") || (selected != null && selected.kind.equals("sample"))) openSection(section);
         else if (selected != null && !selected.kind.equals("sport")) showDetail(selected);
@@ -1504,6 +1520,15 @@ public final class MainActivity extends Activity {
             if (event.getAction() == KeyEvent.ACTION_UP) providerReturnKey = -1;
             return true;
         }
+        // The dialog can be visible before WindowManager transfers input. Back
+        // still belongs to the source menu, never the movie underneath it.
+        if (code == KeyEvent.KEYCODE_BACK && playerSourceDialog != null && playerSourceDialog.isShowing()) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                providerReturnKey = code;
+                playerSourceDialog.dismiss();
+            }
+            return true;
+        }
         if (playerOpen && providerInput) {
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU) {
                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
@@ -1555,7 +1580,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (playerOpen) closePlayer();
+        if (playerSourceDialog != null && playerSourceDialog.isShowing()) playerSourceDialog.dismiss();
+        else if (playerOpen) closePlayer();
         else if (detailOpen) openSection(section);
         else if (!section.equals("Home")) openSection("Home");
         else super.onBackPressed();
@@ -1568,6 +1594,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onDestroy() {
         finishRecovery();
+        if (playerSourceDialog != null) playerSourceDialog.dismiss();
         if (updater != null) updater.close();
         releaseTrailerPreview();
         releaseDiscovery();
@@ -1577,6 +1604,7 @@ public final class MainActivity extends Activity {
         clearCustomVideoView();
         releaseNativePlayer();
         releaseRiftPlayer();
+        releaseBoltPlayer();
         if (player != null) { player.stopLoading(); player.destroy(); }
         api.close();
         super.onDestroy();
@@ -1591,6 +1619,7 @@ public final class MainActivity extends Activity {
         if (updater != null) updater.pause();
         releaseTrailerPreview();
         if (riftPlayer != null) riftPlayer.command("pause", "");
+        if (boltPlayer != null) boltPlayer.command("pause", "");
         if (discovery != null) discovery.setActive(false);
         super.onPause();
     }

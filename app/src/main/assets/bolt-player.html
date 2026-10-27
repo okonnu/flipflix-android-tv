@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}iframe{width:100%;height:100%;border:0;display:block}</style>
+</head><body><iframe id="bolt" title="Bolt video player" allow="autoplay;encrypted-media;fullscreen;picture-in-picture" allowfullscreen></iframe>
+<script>
+(function () {
+    'use strict';
+    var config = __BOLT_CONFIG__, frame = document.getElementById('bolt');
+    var origin = 'https://vidbolt.xyz';
+    window.addEventListener('message', function (event) {
+        if (event.origin !== origin || event.source !== frame.contentWindow) return;
+        var data = event.data;
+        if (!data || typeof data !== 'object') return;
+        if (['ready','play','pause','timeupdate','durationchange','ended'].indexOf(data.type) < 0) return;
+        if (window.DagflixBolt) window.DagflixBolt.postMessage(JSON.stringify({session:config.session,event:data}));
+    });
+    window.boltCommand = function (session, data) {
+        if (session === config.session) frame.contentWindow.postMessage(data, origin);
+    };
+    frame.src = config.url;
+}());
+</script></body></html>

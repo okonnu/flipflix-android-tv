@@ -157,6 +157,17 @@ public final class PlayerNavigationTest {
         main(() -> assertEquals(View.VISIBLE, ((View) field(activity(), "playerOverlay")).getVisibility()));
     }
 
+    @Test public void backDuringSourceDialogFocusTransferDoesNotClosePlayback() throws Exception {
+        start(item("tv"));
+        main(() -> {
+            invoke("choosePlayerSource", field(activity(), "selected"));
+            // Before WindowManager transfers input, Back can still reach the Activity.
+            activity().dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK));
+            activity().dispatchKeyEvent(new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK));
+            assertFullscreen();
+        });
+    }
+
     @Test public void episodeSourceRetryAndCloseStayInOnePlayer() throws Exception {
         start(item("tv"));
         select("Next episode"); main(this::stopEmbedNetwork);

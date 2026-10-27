@@ -36,10 +36,10 @@ final class NavigationRail extends FrameLayout {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(46), dp(46)); p.bottomMargin = dp(9);
             items.addView(b, p); buttons.add(b);
         }
-        TextView brand = new TextView(activity); brand.setText("F"); brand.setTextSize(27); brand.setTextColor(AppStyle.ACCENT);
+        TextView brand = new TextView(activity); brand.setText("D"); brand.setTextSize(27); brand.setTextColor(AppStyle.ACCENT);
         brand.setTypeface(AppStyle.MEDIUM); brand.setGravity(Gravity.CENTER); brand.setIncludeFontPadding(false);
         LayoutParams bp = new LayoutParams(-1, dp(52), Gravity.TOP); bp.topMargin = dp(8); addView(brand, bp);
-        TextView footer = new TextView(activity); footer.setText("FLIPFLIX"); footer.setTextSize(8); footer.setTextColor(AppStyle.MUTED);
+        TextView footer = new TextView(activity); footer.setText("DAGFLIX"); footer.setTextSize(8); footer.setTextColor(AppStyle.MUTED);
         footer.setTypeface(AppStyle.MEDIUM); footer.setLetterSpacing(.08f); footer.setGravity(Gravity.CENTER);
         addView(footer, new LayoutParams(-1, dp(26), Gravity.BOTTOM));
     }

@@ -30,7 +30,7 @@ final class PlaybackRecovery implements AutoCloseable {
         @Override public void run() {
             if (!active || closed) return;
             sample(SystemClock.uptimeMillis());
-            handler.postDelayed(this, unresolved ? 1000 : 5000);
+            if (active && !closed) handler.postDelayed(this, unresolved ? 1000 : 5000);
         }
     };
     void resume() { if (closed) return; active = true; handler.removeCallbacks(tick); tick.run(); }
@@ -67,11 +67,13 @@ final class PlaybackRecovery implements AutoCloseable {
                     unresolved = false; target = -1;
                     if (playAfterRestore) { playAfterRestore = false; b.command("play", ""); }
                 } else if (attempts < 3 && (attempts == 0 || now - lastAttempt >= 4000)) {
+                    // Slow provider startup must not consume the seek/acknowledgement window.
+                    if (attempts == 0) started = now;
                     b.command("seek", String.valueOf(requested));
                     lastAttempt = now; attempts++;
                 }
             }
-            if (unresolved && (now - started > 45000 || (attempts >= 3 && now - lastAttempt > 8000))) {
+            if (unresolved && attempts > 0 && (now - started > 45000 || (attempts >= 3 && now - lastAttempt > 8000))) {
                 notice.show("This source could not restore your position. Your saved progress is kept; try Rift or another source.");
                 // Preserve the bookmark for this failed attempt; changing sources retries the same target.
                 active = false; handler.removeCallbacks(tick); return;

@@ -127,7 +127,7 @@ class UpdateRepository implements AutoCloseable {
             if (!allowed(url)) throw new IOException("Unexpected update download host.");
             HttpURLConnection connection = (HttpURLConnection) url.openConnection(); active = connection;
             connection.setConnectTimeout(15000); connection.setReadTimeout(20000); connection.setInstanceFollowRedirects(false);
-            connection.setRequestProperty("User-Agent", "Flipflix-Android-TV-Updater");
+            connection.setRequestProperty("User-Agent", "Dagflix-Android-TV-Updater");
             connection.setRequestProperty("Accept", url.getHost().equals("api.github.com") ? "application/vnd.github+json" : "application/octet-stream");
             try {
                 int status = connection.getResponseCode();

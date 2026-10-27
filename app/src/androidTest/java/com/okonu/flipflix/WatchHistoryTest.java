@@ -159,6 +159,26 @@ public final class WatchHistoryTest {
             assertEquals(145000, store.get("movie:12").position);
         });
     }
+    @Test public void slowSourceLoadingDoesNotGiveUpBeforeASeekIsPossible() {
+        main(() -> {
+            store.save("movie:12", catalog("movie", 12), 1, 1, 0, state(225000));
+            class Backend implements PlaybackBackend {
+                State s = new State(); long sought = -1;
+                public State state() { return s; }
+                public void command(String name, String value) { if (name.equals("seek")) sought = Long.parseLong(value); }
+            }
+            Backend b = new Backend(); final int[] notices = {0};
+            PlaybackRecovery r = new PlaybackRecovery(store, "movie:12", catalog("movie", 12), 1, 1, 1,
+                225000, () -> b, message -> notices[0]++);
+            try {
+                long now = SystemClock.uptimeMillis(); r.resume(); r.sample(now + 60000);
+                assertEquals("Loading is not a failed seek; retain the pending resume", 0, notices[0]);
+                b.s = state(0); r.sample(now + 61000); assertEquals(225000, b.sought);
+                b.s = state(225000); r.sample(now + 62000);
+                assertEquals(225000, store.get("movie:12").resumePosition());
+            } finally { r.close(); }
+        });
+    }
     @Test public void failedRestoreIsBoundedAndPreservesOldProgress() {
         main(() -> {
             store.save("movie:12", catalog("movie", 12), 1, 1, 1, state(120000));
