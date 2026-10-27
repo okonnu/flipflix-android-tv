@@ -4,7 +4,7 @@ import org.json.JSONObject;
 
 /** Presentation data shared by cards, hero, library, and ambient playback. */
 final class DiscoveryItem {
-    String key, title, category, thumbnail, heroImage, previewUrl = "", watchUrl = "";
+    String key, title, category, thumbnail, heroImage, previewUrl = "";
     String description = "", metadata = "", attribution = "", logoUrl = "";
     String ageRating = "", episodeInfo = "", broadcastTime = "";
     boolean live;
@@ -19,7 +19,7 @@ final class DiscoveryItem {
         JSONObject o = new JSONObject();
         try {
             o.put("key", key).put("title", title).put("category", category).put("thumbnail", thumbnail)
-                .put("heroImage", heroImage).put("previewUrl", previewUrl).put("watchUrl", watchUrl)
+                .put("heroImage", heroImage).put("previewUrl", previewUrl)
                 .put("description", description).put("metadata", metadata).put("attribution", attribution)
                 .put("logoUrl", logoUrl).put("live", live).put("progress", progress).put("ageRating", ageRating)
                 .put("episodeInfo", episodeInfo).put("broadcastTime", broadcastTime).put("previewStartMs", previewStartMs)
@@ -31,7 +31,7 @@ final class DiscoveryItem {
         DiscoveryItem i = new DiscoveryItem();
         i.key = o.optString("key"); i.title = o.optString("title"); i.category = o.optString("category");
         i.thumbnail = o.optString("thumbnail"); i.heroImage = o.optString("heroImage");
-        i.previewUrl = o.optString("previewUrl"); i.watchUrl = o.optString("watchUrl");
+        i.previewUrl = o.optString("previewUrl");
         i.description = o.optString("description"); i.metadata = o.optString("metadata");
         i.attribution = o.optString("attribution"); i.logoUrl = o.optString("logoUrl");
         i.live = o.optBoolean("live"); i.progress = (float) o.optDouble("progress", -1);

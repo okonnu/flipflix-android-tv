@@ -134,8 +134,18 @@ final class DiscoveryView extends FrameLayout {
     static List<DiscoveryItem> saved(Activity activity) {
         List<DiscoveryItem> result = new ArrayList<>();
         try {
-            JSONArray items = new JSONArray(activity.getSharedPreferences("discovery", 0).getString("library", "[]"));
-            for (int i = 0; i < items.length(); i++) result.add(DiscoveryItem.from(items.getJSONObject(i)));
+            android.content.SharedPreferences preferences = activity.getSharedPreferences("discovery", 0);
+            JSONArray items = new JSONArray(preferences.getString("library", "[]"));
+            JSONArray retained = new JSONArray();
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.getJSONObject(i);
+                String key = item.optString("key");
+                // Only the two old bundled demo identities; never remove a real
+                // TMDB entry with the same title or touch playback history.
+                if (key.equals("open:sintel") || key.equals("open:bunny")) continue;
+                retained.put(item); result.add(DiscoveryItem.from(item));
+            }
+            if (retained.length() != items.length()) preferences.edit().putString("library", retained.toString()).apply();
         } catch (org.json.JSONException ignored) { }
         return result;
     }
@@ -202,7 +212,7 @@ final class DiscoveryView extends FrameLayout {
         if (item.live) meta = TextUtils.join("  |  ", nonEmpty(item.broadcastTime, item.ageRating, item.episodeInfo, item.metadata));
         metadata.setText(meta); description.setText(item.description);
         credit.setText(item.attribution); credit.setVisibility(item.attribution.isEmpty() ? GONE : VISIBLE);
-        watch.setText(item.watchUrl.isEmpty() ? "View details" : "Watch trailer");
+        watch.setText("View details");
         if (item.live) watch.setText("Watch live");
         if (item.history) watch.setText(item.resumePosition > 0 ? "Resume at " + WatchHistory.time(item.resumePosition) : "Play again");
         save.setVisibility(item.history ? GONE : VISIBLE);

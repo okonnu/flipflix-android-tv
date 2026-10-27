@@ -89,6 +89,7 @@ public final class CatalogFiltersTest {
         instrumentation().waitForIdleSync();
     }
     @Before public void setup() {
+        instrumentation().setInTouchMode(false);
         saved = prefs().getAll();
         main(() -> {
             ((CatalogApi) field(activity(), "api")).close();
@@ -98,6 +99,7 @@ public final class CatalogFiltersTest {
             invoke("openSection", "Movies");
         });
         instrumentation().waitForIdleSync();
+        awaitActivityWindow();
     }
     @After public void restorePreferences() {
         SharedPreferences.Editor editor = prefs().edit().clear();
@@ -436,6 +438,27 @@ public final class CatalogFiltersTest {
         long deadline = SystemClock.uptimeMillis() + 5000;
         String focused = "";
         while (SystemClock.uptimeMillis() < deadline) {
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                boolean[] ready = {false};
+                String[] selected = {""};
+                main(() -> {
+                    for (View window : android.view.inspector.WindowInspector.getGlobalWindowViews()) {
+                        if (window == activity().getWindow().getDecorView() || !window.hasWindowFocus()) continue;
+                        View input = window.findFocus();
+                        // The ListView owns input, while its selected option
+                        // supplies the text. Accessibility may lag either state.
+                        if (input instanceof android.widget.ListView) {
+                            Object item = ((android.widget.ListView) input).getSelectedItem();
+                            selected[0] = item == null ? "" : item.toString();
+                        } else if (input instanceof TextView) selected[0] = ((TextView) input).getText().toString();
+                        if (text.equals(selected[0])) ready[0] = true;
+                    }
+                });
+                if (ready[0]) return;
+                focused = selected[0];
+                SystemClock.sleep(50);
+                continue;
+            }
             android.view.accessibility.AccessibilityNodeInfo root = instrumentation().getUiAutomation().getRootInActiveWindow();
             android.view.accessibility.AccessibilityNodeInfo input = root == null ? null : root.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT);
             focused = input == null ? "" : String.valueOf(input.getText());

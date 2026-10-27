@@ -21,7 +21,7 @@ class CatalogApi {
     interface Result { void done(JSONObject json, Exception error); }
     interface ArrayResult { void done(JSONArray json, Exception error); }
     private final ExecutorService network = Executors.newFixedThreadPool(4);
-    // A slow catalog response must not hold up the selected poster or local sample artwork.
+    // A slow catalog response must not hold up the selected poster.
     private final ExecutorService artwork = Executors.newFixedThreadPool(2);
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final LruCache<String, Bitmap> images = new LruCache<String, Bitmap>(64) {
@@ -92,7 +92,7 @@ class CatalogApi {
         connection.setConnectTimeout(7000);
         connection.setReadTimeout(12000);
         connection.setRequestProperty("Accept", "application/json,image/*,*/*");
-        connection.setRequestProperty("User-Agent", "Dagflix-Research/0.1");
+        connection.setRequestProperty("User-Agent", "Dagflix/0.1");
         try {
             if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300)
                 throw new IllegalStateException("HTTP " + connection.getResponseCode());

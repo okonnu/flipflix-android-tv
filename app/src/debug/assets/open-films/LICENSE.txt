@@ -1,4 +1,4 @@
-Replacement open-film assets for the Flipflix discovery interface
+Open-film fixtures for Dagflix debug builds and regression tests
 ===============================================================
 
 Sintel
@@ -20,12 +20,12 @@ https://media.w3.org/2010/05/sintel/poster.png
 https://media.w3.org/2010/05/bunny/trailer.mp4
 https://media.w3.org/2010/05/bunny/poster.png
 
-In the discovery hero, Flipflix renders a muted, center-cropped excerpt of up
-to 25 seconds with a readability gradient. The Watch trailer action plays the
-complete trailer using the native fullscreen player. In v0.1.21 the Big Buck
+Discovery playback tests render a muted, center-cropped excerpt of up
+to 25 seconds with a readability gradient. In v0.1.21 the Big Buck
 Bunny trailer was re-encoded as H.264 Main, yuv420p, 854x480 (from 853x480) for
 Android decoder compatibility; its audio was copied without re-encoding.
 The other asset files are unchanged. These are openly licensed sample replacements,
 not Flipflix originals, and do not imply endorsement by the creators or W3C.
 
-Credits are also shown beside the hero and in Local profile > Media credits.
+These files are packaged only in debug APKs, never release APKs. They are
+injected explicitly by regression tests and are not seeded into Home or Library.

@@ -156,7 +156,7 @@ public final class AppUpdaterTest {
         }
         byte[] apk = bytes.toByteArray(); StringBuilder hash = new StringBuilder();
         for (byte b : MessageDigest.getInstance("SHA-256").digest(apk)) hash.append(String.format(java.util.Locale.US, "%02x", b & 255));
-        GithubRelease r = new GithubRelease("0.1.23", release("0.1.23").url, "sha256:" + hash, apk.length);
+        GithubRelease r = new GithubRelease("0.1.24", release("0.1.24").url, "sha256:" + hash, apk.length);
         UpdateRepository repository = new UpdateRepository(rule.getActivity()) {
             @Override HttpURLConnection open(String address) throws java.io.IOException {
                 return new HttpURLConnection(new URL(address)) {
@@ -168,7 +168,7 @@ public final class AppUpdaterTest {
             }
         };
         try {
-            repository.prepare(r); assertEquals("0.1.23", repository.pending().version);
+            repository.prepare(r); assertEquals("0.1.24", repository.pending().version);
             Intent intent = AppUpdater.installIntent(rule.getActivity(), repository.apk());
             assertEquals("content", intent.getData().getScheme()); assertEquals(Intent.ACTION_INSTALL_PACKAGE, intent.getAction());
             assertTrue((intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);

@@ -123,15 +123,23 @@ public final class PlayerNavigationTest {
     }
     private void awaitDialogFocus(String text) {
         long deadline = SystemClock.uptimeMillis() + 5000;
-        String focused = "";
+        String[] focused = {""};
+        boolean[] ready = {false};
         while (SystemClock.uptimeMillis() < deadline) {
-            android.view.accessibility.AccessibilityNodeInfo root = instrumentation().getUiAutomation().getRootInActiveWindow();
-            android.view.accessibility.AccessibilityNodeInfo input = root == null ? null : root.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT);
-            focused = input == null ? "" : String.valueOf(input.getText());
-            if (text.equals(focused)) return;
+            // Accessibility can report a focused child before WindowManager
+            // transfers input to a newly opened dialog. Do not send D-pad events
+            // to the Activity underneath it (especially after close/reopen).
+            main(() -> {
+                android.app.AlertDialog dialog = (android.app.AlertDialog) field(activity(), "playerSourceDialog");
+                View decor = dialog == null || dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
+                View input = decor == null ? null : decor.findFocus();
+                focused[0] = input instanceof Button ? ((Button) input).getText().toString() : "";
+                ready[0] = decor != null && decor.hasWindowFocus() && text.equals(focused[0]);
+            });
+            if (ready[0]) return;
             SystemClock.sleep(50);
         }
-        assertEquals("Source dialog has focus before the next remote press", text, focused);
+        assertTrue("Source dialog must own input before the next remote press; expected " + text + ", focused " + focused[0], ready[0]);
     }
 
     @Test public void backReturnsDirectlyToMovieOrSeriesDetails() throws Exception {
@@ -190,6 +198,15 @@ public final class PlayerNavigationTest {
         select("Retry playback"); main(this::stopEmbedNetwork);
         instrumentation().waitForIdleSync(); main(this::assertFullscreen);
         select("Close player"); main(() -> assertClosed(false));
+    }
+
+    @Test public void repeatedlyReopenedSourceMenuAcceptsRemoteMovement() throws Exception {
+        start(item("tv"));
+        for (int i = 0; i < 8; i++) {
+            select("Source: Bolt"); awaitDialogFocus("Bolt");
+            key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Rift");
+            key(KeyEvent.KEYCODE_BACK);
+        }
     }
 
     @Test public void riftUsesOfficialBridgeAndBackLeavesProviderControlsFirst() throws Exception {

@@ -46,8 +46,8 @@ final class AppStyle {
             .setMessage("A name for this device. No online account or sign-in is required.").setView(name)
             .setPositiveButton("Save", (d, w) -> prefs.edit().putString("profile", name.getText().toString().trim()).apply())
             .setNeutralButton("Media credits", (d, w) -> {
-                AlertDialog credits = new AlertDialog.Builder(activity).setTitle("Open-film preview credits")
-                    .setMessage("Sintel: (c) 2010 Blender Foundation / durian.blender.org\nBig Buck Bunny: (c) 2008 Blender Foundation / bigbuckbunny.org\n\nCC BY 3.0: creativecommons.org/licenses/by/3.0/\nTrailers and stills supplied by media.w3.org. Ambient excerpts are cropped, muted, and limited to 25 seconds. These are replacement sample assets, not Dagflix originals. Other catalog artwork comes from TMDB. No live program schedules are invented.")
+                AlertDialog credits = new AlertDialog.Builder(activity).setTitle("Media credits")
+                    .setMessage("Movie and series listings and artwork: TMDB, accessed through Pantyflix's catalog API.\n\nThis product uses the TMDB API but is not endorsed or certified by TMDB.\n\nAvailable trailers play through YouTube. Live sports listings come from the Streamed service through Pantyflix. Playback availability and options depend on the selected provider.")
                     .setPositiveButton("OK", null).create();
                 credits.show(); dialog(credits, 500, -2);
             }).setNegativeButton("Cancel", null).create();
