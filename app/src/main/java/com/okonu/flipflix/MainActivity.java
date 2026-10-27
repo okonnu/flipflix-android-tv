@@ -63,6 +63,8 @@ public final class MainActivity extends Activity {
     private FullCollection fullCollection;
     private Button loadMoreButton;
     private FrameLayout root;
+    private StartupIntro startupIntro;
+    private boolean foreground;
     private FrameLayout pageChrome;
     private NavigationRail navigationRail;
     private View lastContentFocus;
@@ -189,10 +191,26 @@ public final class MainActivity extends Activity {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         root = new FrameLayout(this);
         root.setBackgroundColor(BG);
-        setContentView(root);
+        FrameLayout surface = new FrameLayout(this);
+        surface.setBackgroundColor(Color.BLACK);
+        surface.addView(root, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(surface);
         openSection("Home");
-        updater = new AppUpdater(this, () -> !playerOpen);
+        // Test-only opt-out cannot disable the intro in the non-debuggable release.
+        boolean testSkip = (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            && getIntent().getBooleanExtra("skip_startup_intro", false);
+        if (state == null && !testSkip && StartupIntro.motionEnabled(this)) {
+            startupIntro = new StartupIntro(this, surface, root, () -> {
+                if (discovery != null) discovery.setActive(foreground && hasWindowFocus());
+                if (updater != null && foreground) updater.stateChanged();
+            });
+            if (discovery != null) discovery.setActive(false);
+            startupIntro.start();
+        }
+        updater = new AppUpdater(this, () -> !playerOpen && !introActive());
     }
+
+    private boolean introActive() { return startupIntro != null && startupIntro.isActive(); }
 
     private int dp(float value) { return (int) (value * getResources().getDisplayMetrics().density + 0.5f); }
     private GradientDrawable shape(int color, int border) {
@@ -1502,6 +1520,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        if (startupIntro != null && startupIntro.handleKey(event)) return true;
         if (discovery != null && discovery.handleKey(event)) return true;
         if (trailerPreview != null && trailerPreview.handleKey(event)) return true;
         int code = event.getKeyCode();
@@ -1569,6 +1588,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
+        if (introActive()) return;
         if (playerSourceDialog != null && playerSourceDialog.isShowing()) playerSourceDialog.dismiss();
         else if (playerOpen) closePlayer();
         else if (detailOpen) openSection(section);
@@ -1582,6 +1602,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        foreground = false;
+        if (startupIntro != null) startupIntro.close();
         finishRecovery();
         if (playerSourceDialog != null) playerSourceDialog.dismiss();
         if (updater != null) updater.close();
@@ -1604,6 +1626,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onPause() {
+        foreground = false;
+        if (startupIntro != null) startupIntro.close();
         if (recovery != null) recovery.pause();
         if (updater != null) updater.pause();
         releaseTrailerPreview();
@@ -1615,17 +1639,18 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        foreground = true;
         if (section.equals("Home") && !detailOpen && !playerOpen && discovery != null
                 && discoveryExpired(android.os.SystemClock.elapsedRealtime())) openSection("Home");
         if (recovery != null) recovery.resume();
         if (updater != null) updater.resume();
-        if (discovery != null) discovery.setActive(hasWindowFocus());
+        if (discovery != null) discovery.setActive(hasWindowFocus() && !introActive());
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (trailerPreview != null) trailerPreview.onWindowFocusChanged(hasFocus);
-        if (discovery != null) discovery.setActive(hasFocus);
+        if (discovery != null) discovery.setActive(hasFocus && foreground && !introActive());
         if (updater != null) updater.stateChanged();
     }
 

@@ -4,6 +4,14 @@ Dagflix (formerly Flipflix) is a native Android TV / Fire TV discovery app with 
 
 Download the latest APK: https://tinyurl.com/24qywecz
 
+## Vector startup intro (v0.1.24)
+
+- The approved Darkflix geometric logo and lettering are native Android vector paths, not a low-resolution video. All pieces fade in together and assemble with slow-fast-slow motion, settling on the soundtrack's impact at 4.2 seconds. Rendering follows the app surface resolution, including 1080p/4K surfaces where the device supplies them.
+- The eight-second intro has no skip button or remote shortcut. Home loads underneath it. During the final second, the entire animation layer fades to transparent over Home while the approved soundtrack fades to silence. There is no intermediate black screen, video decoder, WebView, or startup network dependency.
+- Remote/touch input cannot activate Home underneath the intro. Input focus returns after the layer is removed. Update prompts and ambient previews wait until it finishes. Leaving the app releases startup audio immediately; returning or recreating the Activity does not replay it. The OS reduced-motion setting disables the decorative sequence. Media failures fail open to Home, with a bounded watchdog.
+- The existing Dagflix application name, package, signing certificate, watch history, and stable download link are preserved. [Startup media credits and implementation](STARTUP_MEDIA.md) document the approved artwork and soundtrack.
+- `StartupIntroTest` exercises the real audio-clock/vector sequence, complete crossfade, non-skippable input, held-key handoff, lifecycle/recreation, error recovery, reduced motion, update deferral, and vector geometry at 720p, 1080p, and 4K. Other instrumentation tests omit startup via a debug-only test runner. `tools/check_startup_media.py` checks vector assets, eight-second audio, impact alignment, headroom, and the silent tail.
+
 ## Live catalog cleanup (v0.1.23)
 
 - Removed the permanently seeded Sintel/Big Buck Bunny entries from Featured picks and Spotlight and the unused demo-only fullscreen route. Their artwork/trailers now live in debug-only assets, not the release APK.

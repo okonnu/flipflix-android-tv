@@ -437,7 +437,7 @@ public final class PlaybackControlsTest {
             assertTrue(activity.getTheme().resolveAttribute(android.R.attr.colorBackground, color, true));
             assertEquals(AppStyle.BG, color.data);
             assertTrue(activity.getTheme().resolveAttribute(android.R.attr.windowBackground, color, true));
-            assertEquals(AppStyle.BG, color.data);
+            assertEquals("Launch window matches the black intro before the catalog mounts", Color.BLACK, color.data);
             assertEquals(Color.BLACK, activity.getWindow().getNavigationBarColor());
             assertEquals(Color.BLACK, activity.getWindow().getStatusBarColor());
         });

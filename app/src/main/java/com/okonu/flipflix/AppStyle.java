@@ -47,7 +47,7 @@ final class AppStyle {
             .setPositiveButton("Save", (d, w) -> prefs.edit().putString("profile", name.getText().toString().trim()).apply())
             .setNeutralButton("Media credits", (d, w) -> {
                 AlertDialog credits = new AlertDialog.Builder(activity).setTitle("Media credits")
-                    .setMessage("Movie and series listings and artwork: TMDB, accessed through Pantyflix's catalog API.\n\nThis product uses the TMDB API but is not endorsed or certified by TMDB.\n\nAvailable trailers play through YouTube. Live sports listings come from the Streamed service through Pantyflix. Playback availability and options depend on the selected provider.")
+                    .setMessage("Movie and series listings and artwork: TMDB, accessed through Pantyflix's catalog API.\n\nThis product uses the TMDB API but is not endorsed or certified by TMDB.\n\nAvailable trailers play through YouTube. Live sports listings come from the Streamed service through Pantyflix. Playback availability and options depend on the selected provider.\n\nStartup soundtrack: Epic Cinematic Logo Reveal by BreakzStudios (Pixabay #333643), adapted under the Pixabay Content License.")
                     .setPositiveButton("OK", null).create();
                 credits.show(); dialog(credits, 500, -2);
             }).setNegativeButton("Cancel", null).create();

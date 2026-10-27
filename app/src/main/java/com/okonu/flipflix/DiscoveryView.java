@@ -279,7 +279,13 @@ final class DiscoveryView extends FrameLayout {
         else if (e.getActionMasked() == MotionEvent.ACTION_UP || e.getActionMasked() == MotionEvent.ACTION_CANCEL) preview.restartDelay();
         return super.dispatchTouchEvent(e);
     }
-    void setActive(boolean active) { if (!closed) preview.setActive(active); }
+    void setActive(boolean active) {
+        if (closed) return;
+        preview.setActive(active);
+        // Catalog results can arrive while startup blocks descendant focus.
+        // Complete the initial selection when that temporary layer is gone.
+        if (active) restoreSelection();
+    }
     void close() { closed = true; artworkGeneration++; preview.close(); vertical.cancel(); incoming.setTag(null); for (RowView row : rowViews) row.carousel.motion.cancel(); }
     @Override protected void onDetachedFromWindow() { close(); super.onDetachedFromWindow(); }
 

@@ -2,7 +2,7 @@
     <style name="FlipflixTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans-serif</item>
         <item name="android:colorAccent">#FF3F4C</item>
-        <item name="android:windowBackground">#070A11</item>
+        <item name="android:windowBackground">#000000</item>
         <item name="android:colorBackground">#070A11</item>
         <item name="android:colorButtonNormal">#151C29</item>
         <item name="android:textColorPrimary">#FFFFFF</item>
