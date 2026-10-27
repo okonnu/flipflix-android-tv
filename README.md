@@ -4,6 +4,13 @@ Dagflix (formerly Flipflix) is a native Android TV / Fire TV discovery app with 
 
 Download the latest APK: https://tinyurl.com/24qywecz
 
+## Matching launcher artwork (v0.1.25)
+
+- The launcher icon now uses the exact red geometric emblem from the approved Darkflix startup, centered on pure black without small lettering, borders, or a second background. Native vector paths stay sharp at launcher sizes.
+- Android 8+ receives an adaptive icon with the complete emblem inside the circular safe zone; older Fire OS/Android versions retain a vector fallback. A monochrome layer supports themed launchers on compatible non-TV devices.
+- The 16:9 TV banner uses the approved emblem and Darkflix wordmark. This artwork update does not rename the installed Dagflix app or change its package, signing key, playback, startup, or stored history.
+- Android-rendered assets: [launcher icon](docs/screenshots/app-icon.png) and [TV banner](docs/screenshots/tv-banner.png). `LauncherArtworkTest` checks the exact startup paths, adaptive mask, circular safe zone, black background, and readable banner wordmark.
+
 ## Vector startup intro (v0.1.24)
 
 - The approved Darkflix geometric logo and lettering are native Android vector paths, not a low-resolution video. All pieces fade in together and assemble with slow-fast-slow motion, settling on the soundtrack's impact at 4.2 seconds. Rendering follows the app surface resolution, including 1080p/4K surfaces where the device supplies them.

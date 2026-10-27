@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Keep the complete emblem inside the centered 66dp circular safe zone. -->
+    <group android:scaleX="0.095" android:scaleY="0.095" android:translateX="16" android:translateY="29.965">
+        <path android:fillColor="#EE0715" android:pathData="M164,0H256V506H164Z M256,0H492L636,144V368L494,506H416V417H471L554,330V178L462,90H256Z M286,289H416V356H365V417H416V506H286Z M286,173H517L525,181L445,263H286Z" />
+    </group>
+</vector>

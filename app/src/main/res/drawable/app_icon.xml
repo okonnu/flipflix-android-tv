@@ -1,7 +1,9 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="128dp" android:height="128dp"
     android:viewportWidth="128" android:viewportHeight="128">
-    <path android:fillColor="#101B31" android:pathData="M0,0h128v128h-128z" />
-    <path android:fillColor="#18B8ED" android:pathData="M20,27h24c24,0 35,14 35,38s-11,38 -35,38h-24z M35,42v46h9c14,0 20,-8 20,-23s-6,-23 -20,-23z" />
-    <path android:fillColor="#F2F6FC" android:pathData="M86,59l27,18l-27,18z" />
+    <path android:fillColor="#000000" android:pathData="M0,0h128v128h-128z" />
+    <!-- The four approved startup pieces, assembled into one fill to avoid seams. -->
+    <group android:scaleX="0.175" android:scaleY="0.175" android:translateX="-6" android:translateY="19.725">
+        <path android:fillColor="#EE0715" android:pathData="M164,0H256V506H164Z M256,0H492L636,144V368L494,506H416V417H471L554,330V178L462,90H256Z M286,289H416V356H365V417H416V506H286Z M286,173H517L525,181L445,263H286Z" />
+    </group>
 </vector>

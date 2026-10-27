@@ -1,8 +1,12 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="320dp" android:height="180dp"
     android:viewportWidth="320" android:viewportHeight="180">
-    <path android:fillColor="#101B31" android:pathData="M0,0h320v180h-320z" />
-    <path android:fillColor="#18B8ED" android:pathData="M56,42h48c42,0 64,18 64,52s-22,53 -64,53h-48z M79,62v65h25c28,0 41,-10 41,-33s-13,-32 -41,-32z" />
-    <path android:fillColor="#F2F6FC" android:pathData="M198,56l68,39l-68,39z" />
-    <path android:fillColor="#18B8ED" android:pathData="M56,153h210v4h-210z" />
+    <path android:fillColor="#000000" android:pathData="M0,0h320v180h-320z" />
+    <!-- The approved full startup lockup, with text readable on the TV tile. -->
+    <group android:scaleX="0.2" android:scaleY="0.2" android:translateX="80" android:translateY="24">
+        <path android:fillColor="#EE0715" android:pathData="M164,0H256V506H164Z M256,0H492L636,144V368L494,506H416V417H471L554,330V178L462,90H256Z M286,289H416V356H365V417H416V506H286Z M286,173H517L525,181L445,263H286Z" />
+        <group android:translateX="30" android:translateY="580">
+            <path android:fillColor="#F7F6F2" android:pathData="M0,0H30C54,0 72,14 72,38C72,62 54,76 30,76H0ZM17,16V60H29C45,60 54,52 54,38C54,24 45,16 29,16Z M100,76L132,0H148L180,76H160L140,26L120,76Z M214,0H253C273,0 284,10 284,26C284,39 277,47 266,50L288,76H265L244,51H232V76H214ZM232,16V36H251C260,36 266,33 266,26C266,19 260,16 251,16Z M330,0H348V30L379,0H402L367,35L405,76H381L348,41V76H330Z M432,0H493V17H450V32H489V49H450V76H432Z M528,0H546V59H589V76H528Z M617,0H635V76H617Z M665,0H687L704,24L721,0H743L715,37L744,76H722L704,50L686,76H664L693,37Z" />
+        </group>
+    </group>
 </vector>
