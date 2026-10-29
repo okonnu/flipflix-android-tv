@@ -184,11 +184,11 @@ public final class PlayerNavigationTest {
         select("Previous episode"); main(this::stopEmbedNetwork);
         instrumentation().waitForIdleSync();
         main(() -> { assertFullscreen(); assertEquals(3, field(activity(), "episode")); });
-        select("Source: Bolt");
+        select("Source: Bolt / Web");
         awaitDialogFocus("Bolt");
         key(KeyEvent.KEYCODE_BACK); // Dismiss source menu, not playback.
         main(this::assertFullscreen);
-        select("Source: Bolt");
+        select("Source: Bolt / Web");
         awaitDialogFocus("Bolt");
         key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Rift");
         key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Fast");
@@ -203,7 +203,7 @@ public final class PlayerNavigationTest {
     @Test public void repeatedlyReopenedSourceMenuAcceptsRemoteMovement() throws Exception {
         start(item("tv"));
         for (int i = 0; i < 8; i++) {
-            select("Source: Bolt"); awaitDialogFocus("Bolt");
+            select("Source: Bolt / Web"); awaitDialogFocus("Bolt");
             key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Rift");
             key(KeyEvent.KEYCODE_BACK);
         }
@@ -217,7 +217,7 @@ public final class PlayerNavigationTest {
             stopEmbedNetwork();
             assertNotNull(field(activity(), "riftPlayer"));
             nativeSupported.set(((RiftPlayback) field(activity(), "riftPlayer")).nativeControlsSupported());
-            assertNull("Do not discard Rift servers/audio by scraping one native URL", field(activity(), "nativePlayer"));
+            assertNull("Without an observed media URL, keep Rift's web bridge", field(activity(), "nativePlayer"));
             invoke("useProviderControls");
             assertEquals(true, field(activity(), "providerInput"));
             assertEquals(View.GONE, ((View) field(activity(), "playerOverlay")).getVisibility());

@@ -48,9 +48,22 @@ final class AppStyle {
             .setNeutralButton("Media credits", (d, w) -> {
                 AlertDialog credits = new AlertDialog.Builder(activity).setTitle("Media credits")
                     .setMessage("Movie and series listings and artwork: TMDB, accessed through Pantyflix's catalog API.\n\nThis product uses the TMDB API but is not endorsed or certified by TMDB.\n\nAvailable trailers play through YouTube. Live sports listings come from the Streamed service through Pantyflix. Playback availability and options depend on the selected provider.\n\nStartup soundtrack: Epic Cinematic Logo Reveal by BreakzStudios (Pixabay #333643), adapted under the Pixabay Content License.")
+                    .setNeutralButton("Software licenses", (c, which) -> softwareLicenses(activity))
                     .setPositiveButton("OK", null).create();
                 credits.show(); dialog(credits, 500, -2);
             }).setNegativeButton("Cancel", null).create();
         profile.show(); dialog(profile, 460, -2);
+    }
+    private static void softwareLicenses(Activity activity) {
+        StringBuilder text = new StringBuilder();
+        for (String asset : new String[]{"native-playback.txt", "LGPL-2.1.txt", "Apache-2.0.txt"}) {
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(activity.getAssets().open("licenses/" + asset), java.nio.charset.StandardCharsets.UTF_8))) {
+                String line; while ((line = reader.readLine()) != null) text.append(line).append('\n');
+                text.append('\n');
+            } catch (java.io.IOException ignored) { }
+        }
+        AlertDialog licenses = new AlertDialog.Builder(activity).setTitle("Software licenses")
+            .setMessage(text.toString()).setPositiveButton("Done", null).create();
+        licenses.show(); dialog(licenses, 600, 460);
     }
 }

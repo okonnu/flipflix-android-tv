@@ -1,0 +1,23 @@
+Darkflix native playback components
+
+Media3 1.5.1, Copyright The Android Open Source Project.
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/androidx/media/tree/1.5.1
+License: https://www.apache.org/licenses/LICENSE-2.0
+
+LibVLC for Android 3.7.7, Copyright VLC authors and VideoLAN.
+Licensed under LGPL 2.1 or later. This app uses the unmodified, dynamically
+linked org.videolan.android:libvlc-all:3.7.7 library from Maven Central.
+It is not the separate GPL-licensed VLC Android application.
+
+Source and reproducible build instructions:
+https://code.videolan.org/videolan/libvlcjni
+https://repo.maven.apache.org/maven2/org/videolan/android/libvlc-all/3.7.7/
+
+The full LGPL 2.1 license follows. Modification and reverse engineering of
+the library for debugging modifications are permitted under that license.
+The app's source build uses Gradle/Maven dependencies; replace the LibVLC AAR
+with your modified build, then rebuild and sign your own APK. A differently
+signed APK cannot update the original installation without uninstalling it.
+
+No endorsement by Google, VideoLAN, or the media providers is implied.

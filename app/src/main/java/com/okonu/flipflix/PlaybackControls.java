@@ -155,7 +155,10 @@ final class PlaybackControls extends LinearLayout {
         LayoutParams p = new LayoutParams(dp(46), dp(46)); p.rightMargin = dp(3);
         row.addView(b, p); buttons.add(b); return b;
     }
-    void sourceName(String name) { seeking.reset(); source.setContentDescription("Source: " + name); }
+    void sourceName(String name) {
+        seeking.reset(); source.setContentDescription("Source: " + name);
+        if (source.hasFocus()) hint.setText(source.getContentDescription());
+    }
     void offerRestart(Runnable action) {
         if (restart != null) return;
         restart = label("Start from beginning", 14);

@@ -28,8 +28,6 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import androidx.media3.common.PlaybackException;
-import androidx.media3.common.Player;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -71,6 +69,7 @@ public final class MainActivity extends Activity {
     private LinearLayout content;
     private WebView player;
     private NativePlayback nativePlayer;
+    private StreamDiscovery streamDiscovery;
     private EmbeddedPlayback embeddedPlayer;
     private BoltPlayback boltPlayer;
     private RiftPlayback riftPlayer;
@@ -1198,7 +1197,7 @@ public final class MainActivity extends Activity {
         player.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
             @Override public void onShowCustomView(View view, CustomViewCallback callback) {
-                if (!playerOpen || player != sessionPlayer || customVideoView != null) { callback.onCustomViewHidden(); return; }
+                if (!playerOpen || player != sessionPlayer || nativePlayer != null || customVideoView != null) { callback.onCustomViewHidden(); return; }
                 customVideoView = view;
                 if (android.os.Build.VERSION.SDK_INT >= 26) view.setDefaultFocusHighlightEnabled(false);
                 customVideoCallback = callback;
@@ -1253,7 +1252,7 @@ public final class MainActivity extends Activity {
             item.kind.equals("tv") ? () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex) : null,
             item.kind.equals("tv") ? () -> showPlayer(item, season, episode + 1, currentSourceIndex) : null,
             () -> choosePlayerSource(item), () -> loadSource(item, currentSourceIndex, season, episode), this::closePlayer);
-        playerOverlay.sourceName(sourceNames(item)[currentSourceIndex]);
+        playerOverlay.sourceName(sourceNames(item)[currentSourceIndex] + (nativePlayer == null ? " / Web" : " / " + nativePlayer.engine()));
         root.addView(playerOverlay, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
     }
 
@@ -1291,15 +1290,23 @@ public final class MainActivity extends Activity {
         clearCustomVideoView();
         currentSourceIndex = source;
         int request = ++sourceRequest;
-        if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source]);
+        closeStreamDiscovery();
+        if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source] + " / Web");
         releaseNativePlayer();
         releaseRiftPlayer();
         releaseBoltPlayer();
         if (embeddedPlayer != null) embeddedPlayer.reset();
-        if (player != null) { player.stopLoading(); player.loadUrl("about:blank"); player.setVisibility(View.GONE); }
+        // The next provider load replaces this document. Do not race a separate
+        // about:blank navigation with registering the new session's bridges.
+        if (player != null) { player.stopLoading(); player.setVisibility(View.GONE); }
         if (playerStatus != null) {
             playerStatus.setText("Preparing " + sourceNames(item)[source] + "...");
             playerStatus.setVisibility(View.VISIBLE);
+        }
+        if (!item.kind.equals("sport")) {
+            streamDiscovery = new StreamDiscovery(player, sourceUrl(item, source, s, e), stream -> {
+                handoffToNative(item, source, s, e, stream, request, resumePosition);
+            });
         }
         if (source == 0 && !item.kind.equals("sport") && BoltPlayback.supported()) {
             boltPlayer = new BoltPlayback(player, embeddedPlayer);
@@ -1320,6 +1327,23 @@ public final class MainActivity extends Activity {
             if (source == 1 && !item.kind.equals("sport")) providerInput = true;
             loadEmbed(item, source, s, e);
         }
+        startRecovery(item, source, s, e, resumePosition);
+    }
+
+    private void handoffToNative(Item item, int source, int s, int e, StreamDiscovery.Stream stream, int request, long initial) {
+        if (!playerOpen || request != sourceRequest || nativePlayer != null) return;
+        long position = recovery == null ? Math.max(0, initial) : recovery.handoff();
+        recovery = null;
+        closeStreamDiscovery();
+        releaseRiftPlayer(); releaseBoltPlayer();
+        if (embeddedPlayer != null) embeddedPlayer.reset();
+        clearCustomVideoView();
+        player.stopLoading(); player.loadUrl("about:blank"); player.setVisibility(View.GONE);
+        playNativeStream(item, source, s, e, stream, request, position);
+        startRecovery(item, source, s, e, position);
+    }
+
+    private void startRecovery(Item item, int source, int s, int e, long resumePosition) {
         String historyKey = WatchHistory.key(item.kind, item.id, s, e);
         if (!historyKey.isEmpty()) {
             JSONObject catalog = new JSONObject();
@@ -1330,7 +1354,7 @@ public final class MainActivity extends Activity {
             } catch (Exception ignored) { }
             recovery = new PlaybackRecovery(watchHistory, historyKey, catalog, s, e, source, resumePosition, this::playbackBackend,
                 message -> android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show());
-            recovery.resume();
+            if (foreground) recovery.resume();
         }
     }
 
@@ -1353,22 +1377,49 @@ public final class MainActivity extends Activity {
 
     @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
     private void playNativeVideo(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
-        NativePlayback video = new NativePlayback(this, stream, referer, captions);
+        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.27", captions, 0), request, 0);
+    }
+
+    private void playNativeStream(Item item, int source, int s, int e, StreamDiscovery.Stream stream, int request, long position) {
+        NativePlayback video = new NativePlayback(this, stream.url, stream.referer, stream.agent, stream.captions);
         nativePlayer = video;
+        providerInput = false;
         playerScreen.addView(video.view, 0, new FrameLayout.LayoutParams(-1, -1));
-        if (playerStatus != null) playerStatus.setVisibility(View.GONE);
-        video.player.addListener(new Player.Listener() {
-            @Override public void onPlayerError(PlaybackException error) {
-                if (request == sourceRequest && nativePlayer == video) {
-                    releaseNativePlayer();
-                    loadEmbed(item, source, s, e);
+        if (playerStatus != null) { playerStatus.setText("Opening native player..."); playerStatus.setVisibility(View.VISIBLE); }
+        video.setListener(new NativePlayback.Listener() {
+            private boolean current() { return playerOpen && request == sourceRequest && nativePlayer == video; }
+            @Override public void ready() {
+                if (!current()) return;
+                // Never replace a feature with an unrelated short ad/manifest.
+                long actual = video.state().duration;
+                if (stream.duration > 0 && (actual <= 0 || Math.abs(actual - stream.duration) > Math.max(10000, stream.duration / 20))) {
+                    video.reject(); return;
                 }
+                if (playerStatus != null) playerStatus.setVisibility(View.GONE);
+                if (!foreground) video.command("pause", "");
+                if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source] + " / " + video.engine());
+            }
+            @Override public void failed() {
+                if (!current()) return;
+                // No automatic return to web playback or endless engine retries.
+                if (playerStatus != null) { playerStatus.setText("Native playback unavailable. Use Source to try another provider, or Retry."); playerStatus.setVisibility(View.VISIBLE); }
+                revealPlayerOverlay(true);
+            }
+            @Override public void engineChanged(String engine) {
+                if (current() && playerStatus != null) { playerStatus.setText("Trying native " + engine + " playback..."); playerStatus.setVisibility(View.VISIBLE); }
             }
         });
-        video.start();
+        video.start(position);
+        if (!foreground) video.command("pause", "");
+        enterPlayerFullscreen();
+    }
+
+    private void closeStreamDiscovery() {
+        if (streamDiscovery != null) { streamDiscovery.close(); streamDiscovery = null; }
     }
 
     private void releaseNativePlayer() {
+        closeStreamDiscovery();
         if (nativePlayer == null) return;
         if (playerScreen != null) playerScreen.removeView(nativePlayer.view);
         nativePlayer.release();
@@ -1633,6 +1684,7 @@ public final class MainActivity extends Activity {
         releaseTrailerPreview();
         if (riftPlayer != null) riftPlayer.command("pause", "");
         if (boltPlayer != null) boltPlayer.command("pause", "");
+        if (nativePlayer != null) nativePlayer.command("pause", "");
         if (discovery != null) discovery.setActive(false);
         super.onPause();
     }

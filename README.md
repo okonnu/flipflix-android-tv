@@ -4,6 +4,25 @@ Darkflix (formerly Dagflix and Flipflix) is a native Android TV / Fire TV discov
 
 Download the latest APK: https://tinyurl.com/24qywecz
 
+The GitHub repository is currently private. The short link and release downloads require repository access; anonymous downloads and the unauthenticated in-app updater cannot fetch a private release. Repository visibility has not been changed.
+
+## Native-first playback (v0.1.27)
+
+- Movie/episode playback observes the selected provider's normal video loading. If that exact provider frame exposes an ordinary HTTPS video or HLS/DASH manifest and full-length metadata, Darkflix stops the web player and hands playback to native Media3/ExoPlayer. It does not decrypt provider payloads, guess protected endpoints, bypass DRM, or persist stream tokens.
+- ExoPlayer tries available platform decoders first. Unsupported audio, player errors, or a bounded preparation timeout switch once to the bundled LibVLC 3.7.7 native engine, which supplies broader audio/video decoding. No external VLC installation is required. LibVLC is the extra codec path; this release does **not** build or bundle Media3's separate FFmpeg audio extension.
+- Both native engines use the existing Darkflix remote controls, accelerating seek, pause/play, mute, Fit/Fill, subtitle and source-provided audio-track choices. ExoPlayer exposes available video-quality tracks; VLC uses automatic adaptive quality. Provider-only server lists, styling, or separate language-version features may be unavailable after native handoff.
+- History is still keyed by movie/episode, not provider or engine. Handoff captures progress before releasing the outgoing backend. Exo-to-VLC fallback preserves the current position, pause, mute and Fit/Fill. Back releases both engines; leaving the Activity pauses native playback.
+- The controls identify the active engine: `Bolt / ExoPlayer`, `Rift / VLC`, or `Fast / Web`, for example. If no usable URL is exposed, the existing web integration remains and is explicitly labeled Web. Sports stays on its existing route. Once native playback starts, a failure does not silently return to an embed or loop indefinitely: Source, Retry and Back remain available.
+- Discovery is event-driven, source-origin/session scoped, and cancelled on source change/exit. Short clips, DRM signals, stale documents, ambiguous cross-host manifests, and materially mismatched native durations are rejected. It depends on WebView document-start/message support; older WebViews retain the Web route. This cannot guarantee a direct stream for every provider or title.
+- Compile SDK 36 and AGP 8.10.1 support the current stable LibVLC dependency. Minimum Android remains 5.1/API 22 and target API remains 33. ARMv7, ARM64, x86 and x86_64 are packaged; the universal APK is larger because it now includes actual native codec libraries. All SDK packages remain in `/home/okonu/Android/Sdk`.
+- Software notices and LGPL/Apache license texts are available under Profile > Media credits > Software licenses, with upstream source/build links.
+
+`NativeFirstPlaybackTest` checks actual Exo and VLC decoding, real decoder failure/fallback, paused-position/mute/crop preservation, bounded failure, scoped discovery and stale-session rejection, and Activity-level cross-provider native handoff/history. Its opt-in `liveNativeProbe` takes `nativeProvider=0`, `1`, or `2`; `requireNative=true` distinguishes confirmed native playback from a working web fallback. Fixture/protocol tests do not establish live-provider availability.
+
+Verification on 2026-10-28: the API 34 TV emulator regression suite passed 130 tests, with four optional live probes skipped. A subsequent seven-test native suite, including background handoff and a live Rift probe using the licensed film Sintel, also passed. Rift exposed a full-length stream that played in ExoPlayer; seeking to 60 seconds, pausing, and forcing a switch to VLC preserved the paused position. Both rendered screenshots show the same app-owned controls with no duplicate web controls: [ExoPlayer](docs/screenshots/native-rift-exoplayer.png), [VLC](docs/screenshots/native-rift-vlc.png). Sintel is (c) Blender Foundation, licensed CC BY 3.0; these are test captures, not seeded catalog entries. Live Bolt/Fast native availability was not established by this check.
+
+Release lint completed with zero errors (75 warnings), and the signed universal release APK passed signature and ZIP alignment checks. Minimum SDK 22 and the existing package/signing identity are unchanged. This verifies the API 34 emulator path, not playback on every older Fire OS version or every codec/device combination.
+
 ## Darkflix name (v0.1.26)
 
 - The launcher, system app name, in-app branding, update prompts, and playback help now say Darkflix, matching the existing geometric icon and startup logo.
