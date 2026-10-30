@@ -1440,7 +1440,7 @@ public final class MainActivity extends Activity {
     }
 
     private void playNativeVideo(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
-        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.29", captions, 0), request, 0);
+        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.30", captions, 0), request, 0);
     }
 
     private void playNativeStream(Item item, int source, int s, int e, StreamDiscovery.Stream stream, int request, long position) {

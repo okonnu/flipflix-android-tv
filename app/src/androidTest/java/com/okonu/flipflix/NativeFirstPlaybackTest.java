@@ -343,4 +343,43 @@ public final class NativeFirstPlaybackTest {
             assertEquals("Old document cannot feed the new lease", 1, found.get());
         } finally { main(() -> { discovery[0].close(); web[0].destroy(); }); }
     }
+
+    @Test public void discoveryUsesActiveHlsMasterWhenNetworkOnlyContainsVideoRendition() {
+        WebView[] web = new WebView[1]; StreamDiscovery[] discovery = new StreamDiscovery[1];
+        java.util.concurrent.atomic.AtomicReference<StreamDiscovery.Stream> found = new java.util.concurrent.atomic.AtomicReference<>();
+        AtomicBoolean loaded = new AtomicBoolean();
+        main(() -> {
+            web[0] = new WebView(rule.getActivity()); web[0].getSettings().setJavaScriptEnabled(true);
+            rule.getActivity().setContentView(web[0]);
+            web[0].setWebViewClient(new WebViewClient() {
+                @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                    boolean library = request.getUrl().getPath().endsWith("hls.js");
+                    String body = library
+                        ? "window.Hls=function(){};Hls.prototype.attachMedia=function(v){this.media=v;return 'unchanged';};Hls.prototype.loadSource=function(u){this.url=u;};"
+                        : "<html><body><video id='v'></video><video id='other'></video><script src='/hls.js'></script><script>"
+                        + "(function(){var v=document.getElementById('v'),h=new Hls(),decoy=new Hls();"
+                        + "window.attachResult=h.attachMedia(v);h.loadSource('https://cdn.example.com/master.m3u8');"
+                        + "decoy.attachMedia(document.getElementById('other'));decoy.loadSource('https://ads.example.com/wrong.m3u8');"
+                        + "Object.defineProperties(v,{duration:{value:900},readyState:{value:1},currentSrc:{value:'blob:local'}});"
+                        + "performance.getEntriesByType=function(){return [{name:'https://cdn.example.com/video-only.m3u8',startTime:10}];};"
+                        + "})();</script></body></html>";
+                    return new WebResourceResponse(library ? "text/javascript" : "text/html", "UTF-8", new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
+                }
+                @Override public void onPageFinished(WebView view, String url) { loaded.set(true); }
+            });
+            discovery[0] = new StreamDiscovery(web[0], "https://embed.vidrift.in/embed/movie/45745", true, found::set);
+            assertTrue(discovery[0].active());
+            web[0].loadUrl("https://embed.vidrift.in/embed/movie/45745");
+        });
+        try {
+            await("Provider library and video loaded", loaded::get);
+            main(() -> web[0].evaluateJavascript("document.getElementById('v').dispatchEvent(new Event('loadedmetadata'));", null));
+            await("Active source discovered", () -> found.get() != null);
+            assertEquals("Keep alternate audio in the master; never use a child video playlist or another player's URL",
+                "https://cdn.example.com/master.m3u8", found.get().url);
+            AtomicBoolean preserved = new AtomicBoolean();
+            main(() -> web[0].evaluateJavascript("attachResult==='unchanged'", value -> preserved.set("true".equals(value))));
+            await("Library method behavior is preserved", preserved::get);
+        } finally { main(() -> { discovery[0].close(); web[0].destroy(); }); }
+    }
 }

@@ -8,14 +8,23 @@ Download the latest APK: https://tinyurl.com/24qywecz
 
 The GitHub repository is currently private. The short link and release downloads require repository access; anonymous downloads and the unauthenticated in-app updater cannot fetch a private release. Repository visibility has not been changed.
 
-## Native-only Rift, Bolt web fallback (v0.1.29)
+## Rift native audio fix (v0.1.30)
+
+- Root cause: Rift's HLS loader preloads the master playlist without making a Resource Timing entry. The previous discovery heuristic selected a later video-only child playlist, losing the separate audio rendition. The master observed on the TV contains three video levels and AAC audio; this was a source-selection error, not a VLC codec or mute-setting problem.
+- Discovery now observes HLS.js's public [media attachment](https://hlsjs.video-dev.org/api-docs/hls.js.hls.attachmedia), associates each instance with its exact video element, and hands VLC that instance's [current input URL](https://hlsjs.video-dev.org/api-docs/hls.js.hls.url). It preserves the original method's arguments and result, rejects detached owners, and restores the method on handoff. If a known HLS player has no usable input URL, discovery does not substitute a guessed video child.
+- The observer runs on library/media events, not a polling loop. No extra manifest requests, guessed provider endpoints, payload decryption, persisted stream tokens, or player-engine changes were added. Rift remains native-only; Bolt's existing web fallback remains.
+- Both the original live audio test and a deterministic real-WebView test failed before this fix and passed afterward on the actual onn TV box over wireless ADB. The WebView regression uses a closure-private HLS instance, an unrelated second player, a preloaded master absent from Resource Timing, and a visible video-only child. The live Rift/Sintel test requires a selected native audio track, decoded-audio and played-audio-buffer counters, mute/unmute, seek and pause. This verifies delivery to Android's audio output, not physical speaker loudness or every provider title.
+
+Five focused TV checks passed across two runs: live Rift native audio/controls, the master-selection regression, scoped one-shot discovery/stale-session rejection, cross-provider native resume, and Bolt web recovery/audio after a native failure. Release build/lint (zero errors, 72 warnings), signing and 16 KB ZIP alignment passed. No emulator or full-suite run was used.
+
+## Native-only Rift, Bolt web fallback (v0.1.29, historical)
 
 - Rift now uses a hidden, non-focusable, muted WebView only to discover an ordinary direct stream. VLC is its only playback backend. Rift's old provider controller and web-player fallback are not instantiated. Fast and sports retain their existing routes.
 - Bolt keeps its visible web player when a usable direct URL cannot be discovered. If a discovered stream plays in VLC, native playback takes over. If that native attempt fails, Bolt returns once to web playback at the shared resume point, without a discovery/retry loop. Explicit Retry or selecting a source permits a fresh attempt.
 - The entire resolver WebView is muted with AndroidX's [WebView audio API](https://developer.android.com/reference/androidx/webkit/WebViewCompat#setAudioMuted(android.webkit.WebView,boolean)), including nested frames. It cannot open a fullscreen/custom view or take remote focus. Its clock cannot update watch history or replace a saved resume point.
 - Rift discovery has a 45-second limit. Failure or unsupported WebView capabilities leaves Source, Retry and Back available, with no web fallback. Retry creates a new discovery lease; late results/timeouts from old leases are ignored. A successful handoff stops/blanks the resolver before VLC starts and restores the shared movie/episode checkpoint.
 - Rift resolution requires document-start scripts, origin-scoped messages, and WebView audio muting. Older Fire TV WebViews lacking these features cannot resolve Rift natively; Bolt/Fast retain web playback. A title may also fail if its provider does not expose a usable direct URL. No DRM, authentication, or provider protection is bypassed, and signed URLs are not persisted.
-- This changes playback policy, not stream selection. The previously observed Rift video-only HLS input issue is still separate: selecting VLC cannot add an audio track absent from the discovered playlist. Only tracks available in the direct stream can appear in native controls.
+- This release changed playback policy, not stream selection. Its Rift video-only HLS input issue was subsequently fixed in v0.1.30 above. Only tracks available in the direct stream can appear in native controls.
 
 Live verification on the actual onn TV: Sintel on Rift reached VLC with 885-second metadata and acknowledged a seek to one minute and pause. Bolt did not resolve in the observed attempt; a subsequent switch to Rift must not be counted as Bolt success. Live audio was not verified in these resolver checks. Keep tests narrow; no emulator or full-suite run is needed for this policy change.
 
