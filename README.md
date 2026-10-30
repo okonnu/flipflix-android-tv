@@ -2,11 +2,26 @@
 
 Darkflix (formerly Dagflix and Flipflix) is a native Android TV / Fire TV discovery app with remote-friendly browsing, title details, trailers, Library, watch history, and third-party playback providers.
 
+This is an experimental project. Favor small, fast iterations and checks scoped to the behavior being changed, on the actual TV unless requested otherwise. The owner permits resetting/reinstalling this app and discarding its test data when useful; do not add data-preservation or migration work by default. This does not authorize deleting unrelated projects or device data.
+
 Download the latest APK: https://tinyurl.com/24qywecz
 
 The GitHub repository is currently private. The short link and release downloads require repository access; anonymous downloads and the unauthenticated in-app updater cannot fetch a private release. Repository visibility has not been changed.
 
-## VLC-native playback (v0.1.28)
+## Native-only Rift, Bolt web fallback (v0.1.29)
+
+- Rift now uses a hidden, non-focusable, muted WebView only to discover an ordinary direct stream. VLC is its only playback backend. Rift's old provider controller and web-player fallback are not instantiated. Fast and sports retain their existing routes.
+- Bolt keeps its visible web player when a usable direct URL cannot be discovered. If a discovered stream plays in VLC, native playback takes over. If that native attempt fails, Bolt returns once to web playback at the shared resume point, without a discovery/retry loop. Explicit Retry or selecting a source permits a fresh attempt.
+- The entire resolver WebView is muted with AndroidX's [WebView audio API](https://developer.android.com/reference/androidx/webkit/WebViewCompat#setAudioMuted(android.webkit.WebView,boolean)), including nested frames. It cannot open a fullscreen/custom view or take remote focus. Its clock cannot update watch history or replace a saved resume point.
+- Rift discovery has a 45-second limit. Failure or unsupported WebView capabilities leaves Source, Retry and Back available, with no web fallback. Retry creates a new discovery lease; late results/timeouts from old leases are ignored. A successful handoff stops/blanks the resolver before VLC starts and restores the shared movie/episode checkpoint.
+- Rift resolution requires document-start scripts, origin-scoped messages, and WebView audio muting. Older Fire TV WebViews lacking these features cannot resolve Rift natively; Bolt/Fast retain web playback. A title may also fail if its provider does not expose a usable direct URL. No DRM, authentication, or provider protection is bypassed, and signed URLs are not persisted.
+- This changes playback policy, not stream selection. The previously observed Rift video-only HLS input issue is still separate: selecting VLC cannot add an audio track absent from the discovered playlist. Only tracks available in the direct stream can appear in native controls.
+
+Live verification on the actual onn TV: Sintel on Rift reached VLC with 885-second metadata and acknowledged a seek to one minute and pause. Bolt did not resolve in the observed attempt; a subsequent switch to Rift must not be counted as Bolt success. Live audio was not verified in these resolver checks. Keep tests narrow; no emulator or full-suite run is needed for this policy change.
+
+Five focused regression checks passed across targeted TV runs: Rift control ownership/fullscreen rejection; timeout/retry/source/episode/Back navigation; scoped one-shot discovery; native cross-provider resume; and Bolt recovery after an actual VLC failure, including restored WebView audio and the shared checkpoint. The final fallback test passed in 6.9 seconds. Embedded documents can report `about:blank` from `getUrl()` when their history URL is null, so audio restoration uses their completed-page callback URL. Release build/lint (zero errors, 72 warnings), signing and 16 KB ZIP alignment passed.
+
+## VLC-native playback (v0.1.28, historical)
 
 - All native movie/episode sessions, the startup soundtrack, and optional direct background previews use bundled LibVLC 3.7.7. ExoPlayer and all Media3 dependencies have been removed completely; there is no engine-switch retry step. YouTube/provider web integrations are unchanged.
 - Hardware decoding is enabled with software fallback permitted. Fullscreen playback renders through SurfaceView; ambient previews use TextureView for their crossfade. This is a compatibility choice, not a claim of lower CPU, RAM, or power use than ExoPlayer; actual resource use depends on the device and codec.

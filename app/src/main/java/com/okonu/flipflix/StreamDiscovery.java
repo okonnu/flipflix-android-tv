@@ -29,9 +29,19 @@ final class StreamDiscovery {
     private boolean registered, closed, delivered;
 
     StreamDiscovery(WebView web, String sourceUrl, Listener listener) {
+        this(web, sourceUrl, false, listener);
+    }
+
+    StreamDiscovery(WebView web, String sourceUrl, boolean resolverOnly, Listener listener) {
         this.web = web;
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)
                 || !WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+        // Muting the entire WebView also covers cross-origin child frames and
+        // Web Audio. Never let a hidden resolver become an audible web player.
+        if (resolverOnly) {
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.MUTE_AUDIO)) return;
+            WebViewCompat.setAudioMuted(web, true);
+        }
         Uri source = Uri.parse(sourceUrl);
         String origin = source.getScheme() + "://" + source.getAuthority();
         try (InputStream in = web.getContext().getAssets().open("stream-discovery.js"); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -54,6 +64,8 @@ final class StreamDiscovery {
             script = WebViewCompat.addDocumentStartJavaScript(web, out.toString("UTF-8").replace("__SESSION__", session), Collections.singleton(origin));
         } catch (Exception ignored) { close(); }
     }
+
+    boolean active() { return registered && script != null && !closed; }
 
     static Stream parse(JSONObject data, String origin, String agent) {
         long duration = data.optLong("duration");

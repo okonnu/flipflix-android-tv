@@ -21,7 +21,7 @@ final class NativePlayback implements PlaybackBackend {
     private boolean closed, failed, started, notified;
 
     NativePlayback(Context context, String url, String referer, JSONArray captions) {
-        this(context, url, referer, "Darkflix/0.1.28", captions);
+        this(context, url, referer, "Darkflix/0.1.29", captions);
     }
     NativePlayback(Context context, String url, String referer, String agent, JSONArray captions) {
         this.context = context; this.url = url; this.referer = referer; this.agent = agent; this.captions = captions;

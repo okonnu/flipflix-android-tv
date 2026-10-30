@@ -28,6 +28,8 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -70,6 +72,12 @@ public final class MainActivity extends Activity {
     private WebView player;
     private NativePlayback nativePlayer;
     private StreamDiscovery streamDiscovery;
+    private boolean nativeOnlySource;
+    private Runnable nativeDiscoveryDeadline;
+    private static final PlaybackBackend WAITING_FOR_NATIVE = new PlaybackBackend() {
+        @Override public State state() { return new State(); }
+        @Override public void command(String name, String value) { }
+    };
     private EmbeddedPlayback embeddedPlayer;
     private BoltPlayback boltPlayer;
     private RiftPlayback riftPlayer;
@@ -1192,12 +1200,13 @@ public final class MainActivity extends Activity {
         player.getSettings().setMediaPlaybackRequiresUserGesture(false);
         player.getSettings().setSupportMultipleWindows(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(player, true);
-        embeddedPlayer = new EmbeddedPlayback(player, !RiftPlayback.supported());
+        // Rift is resolver-only. Bolt and Fast retain their web controllers.
+        embeddedPlayer = new EmbeddedPlayback(player, false);
         final SportsEmbedCompat sportsCompat = item.kind.equals("sport") ? new SportsEmbedCompat(player) : null;
         player.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
             @Override public void onShowCustomView(View view, CustomViewCallback callback) {
-                if (!playerOpen || player != sessionPlayer || nativePlayer != null || customVideoView != null) { callback.onCustomViewHidden(); return; }
+                if (!playerOpen || player != sessionPlayer || nativeOnlySource || nativePlayer != null || customVideoView != null) { callback.onCustomViewHidden(); return; }
                 customVideoView = view;
                 if (android.os.Build.VERSION.SDK_INT >= 26) view.setDefaultFocusHighlightEnabled(false);
                 customVideoCallback = callback;
@@ -1216,11 +1225,21 @@ public final class MainActivity extends Activity {
                 return sportsCompat == null ? null : sportsCompat.intercept(request);
             }
             @Override public void onPageFinished(WebView view, String url) {
-                if (view == player && embeddedPlayer != null && riftPlayer == null) embeddedPlayer.pageFinished();
+                if (view != player || nativeOnlySource || nativePlayer != null) return;
+                // Do not unmute an outgoing resolver before its replacement page
+                // has committed. Fast/sports keep their visible web playback.
+                // loadDataWithBaseURL may report about:blank from getUrl() when
+                // historyUrl is null; onPageFinished carries the actual base URL.
+                if ((item.kind.equals("sport") && url.startsWith("https://embed.st/"))
+                        || (!item.kind.equals("sport") && (url.equals("https://pantyflix.com/")
+                        || url.startsWith("https://com.okonu.flipflix/bolt/") || url.startsWith("https://vidbolt.xyz/")))) {
+                    if (WebViewFeature.isFeatureSupported(WebViewFeature.MUTE_AUDIO)) WebViewCompat.setAudioMuted(view, false);
+                }
+                if (embeddedPlayer != null) embeddedPlayer.pageFinished();
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
-                if (riftPlayer != null || boltPlayer != null) return true;
+                if (nativeOnlySource || riftPlayer != null || boltPlayer != null) return true;
                 String host = request.getUrl().getHost();
                 return host == null || !(host.equals("pantyflix.com") || host.equals("vidbolt.xyz") || host.equals("bingr.one") || host.equals("embed.vidrift.in") || host.equals("embed.st"));
             }
@@ -1252,7 +1271,7 @@ public final class MainActivity extends Activity {
             item.kind.equals("tv") ? () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex) : null,
             item.kind.equals("tv") ? () -> showPlayer(item, season, episode + 1, currentSourceIndex) : null,
             () -> choosePlayerSource(item), () -> loadSource(item, currentSourceIndex, season, episode), this::closePlayer);
-        playerOverlay.sourceName(sourceNames(item)[currentSourceIndex] + (nativePlayer == null ? " / Web" : " / " + nativePlayer.engine()));
+        playerOverlay.sourceName(sourceNames(item)[currentSourceIndex] + (nativePlayer == null ? nativeOnlySource ? " / VLC" : " / Web" : " / " + nativePlayer.engine()));
         root.addView(playerOverlay, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
     }
 
@@ -1289,45 +1308,89 @@ public final class MainActivity extends Activity {
         recovery = null; initialPlaybackPosition = -1;
         clearCustomVideoView();
         currentSourceIndex = source;
+        nativeOnlySource = !item.kind.equals("sport") && source == 1;
         int request = ++sourceRequest;
         closeStreamDiscovery();
-        if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source] + " / Web");
+        if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source] + (nativeOnlySource ? " / VLC" : " / Web"));
         releaseNativePlayer();
         releaseRiftPlayer();
         releaseBoltPlayer();
         if (embeddedPlayer != null) embeddedPlayer.reset();
         // The next provider load replaces this document. Do not race a separate
         // about:blank navigation with registering the new session's bridges.
-        if (player != null) { player.stopLoading(); player.setVisibility(View.GONE); }
+        if (player != null) {
+            player.stopLoading(); player.setVisibility(View.GONE);
+            player.setAlpha(nativeOnlySource ? 0f : 1f);
+            player.setFocusable(!nativeOnlySource);
+            player.setImportantForAccessibility(nativeOnlySource ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        }
         if (playerStatus != null) {
             playerStatus.setText("Preparing " + sourceNames(item)[source] + "...");
             playerStatus.setVisibility(View.VISIBLE);
         }
         if (!item.kind.equals("sport")) {
-            streamDiscovery = new StreamDiscovery(player, sourceUrl(item, source, s, e), stream -> {
+            streamDiscovery = new StreamDiscovery(player, sourceUrl(item, source, s, e), nativeOnlySource, stream -> {
                 handoffToNative(item, source, s, e, stream, request, resumePosition);
             });
         }
-        if (source == 0 && !item.kind.equals("sport") && BoltPlayback.supported()) {
-            boltPlayer = new BoltPlayback(player, embeddedPlayer);
-            player.setVisibility(View.VISIBLE); playerStatus.setVisibility(View.GONE);
-            boltPlayer.load(sourceUrl(item, source, s, e), resumePosition);
-            revealPlayerOverlay(false);
-        } else if (source == 1 && !item.kind.equals("sport") && RiftPlayback.supported()) {
-            riftPlayer = new RiftPlayback(player,
-                message -> android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show(),
-                this::useProviderControls, this::closePlayer);
-            player.setVisibility(View.VISIBLE); playerStatus.setVisibility(View.GONE);
-            riftPlayer.load(sourceUrl(item, source, s, e), item.id, item.kind, s, e);
-            // Old WebViews cannot inject into the cross-origin provider frame.
-            // Use one provider-owned surface there, never two overlapping layers.
-            providerInput = !riftPlayer.nativeControlsSupported();
-            revealPlayerOverlay(false);
-        } else {
-            if (source == 1 && !item.kind.equals("sport")) providerInput = true;
-            loadEmbed(item, source, s, e);
-        }
+        if (nativeOnlySource) loadNativeResolver(item, source, s, e, request);
+        else if (source == 0 && !item.kind.equals("sport")) loadBoltWeb(item, s, e, resumePosition);
+        else loadEmbed(item, source, s, e);
         startRecovery(item, source, s, e, resumePosition);
+    }
+
+    private void loadNativeResolver(Item item, int source, int s, int e, int request) {
+        if (streamDiscovery == null || !streamDiscovery.active()) {
+            nativeDiscoveryFailed(request); return;
+        }
+        // Keep a renderable surface for media metadata, but no input, picture,
+        // sound, player API, fullscreen permission, or watch-history clock.
+        player.setVisibility(View.VISIBLE);
+        String url = sourceUrl(item, source, s, e);
+        url += "?fs=parent&hide=next,episodes";
+        String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+            + "<body style='margin:0;background:#000;overflow:hidden'><iframe title='Stream discovery' src='"
+            + TextUtils.htmlEncode(url) + "' allow='autoplay' style='border:0;width:100vw;height:100vh'></iframe></body></html>";
+        player.loadDataWithBaseURL("https://com.okonu.flipflix/resolve/", html, "text/html", "UTF-8", null);
+        nativeDiscoveryDeadline = () -> nativeDiscoveryFailed(request);
+        ui.postDelayed(nativeDiscoveryDeadline, 45000);
+        revealPlayerOverlay(false);
+    }
+
+    private void nativeDiscoveryFailed(int request) {
+        if (!playerOpen || !nativeOnlySource || request != sourceRequest || nativePlayer != null) return;
+        ++sourceRequest; // Reject queued results from the expired discovery lease.
+        closeStreamDiscovery();
+        player.stopLoading(); player.loadUrl("about:blank"); player.setVisibility(View.GONE);
+        if (playerStatus != null) {
+            playerStatus.setText("No usable native stream found. Use Source to try another provider, or Retry.");
+            playerStatus.setVisibility(View.VISIBLE);
+        }
+        revealPlayerOverlay(true);
+    }
+
+    private void loadBoltWeb(Item item, int s, int e, long position) {
+        player.setAlpha(1f); player.setFocusable(true);
+        player.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        player.setVisibility(View.VISIBLE); playerStatus.setVisibility(View.GONE);
+        if (BoltPlayback.supported()) {
+            boltPlayer = new BoltPlayback(player, embeddedPlayer);
+            boltPlayer.load(sourceUrl(item, 0, s, e), position);
+        } else loadEmbed(item, 0, s, e);
+        if (playerOverlay != null) playerOverlay.sourceName("Bolt / Web");
+        revealPlayerOverlay(false);
+    }
+
+    private void fallbackBoltToWeb(Item item, int s, int e) {
+        long position = recovery == null ? -1 : recovery.handoff();
+        recovery = null;
+        ++sourceRequest;
+        releaseNativePlayer(); releaseBoltPlayer();
+        if (embeddedPlayer != null) embeddedPlayer.reset();
+        // No new discovery lease here: one failed native attempt returns to
+        // web playback until the viewer explicitly selects Retry/a new source.
+        loadBoltWeb(item, s, e, position);
+        startRecovery(item, 0, s, e, position);
     }
 
     private void handoffToNative(Item item, int source, int s, int e, StreamDiscovery.Stream stream, int request, long initial) {
@@ -1358,11 +1421,12 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private PlaybackBackend playbackBackend() { return nativePlayer != null ? nativePlayer : riftPlayer != null ? riftPlayer : boltPlayer != null ? boltPlayer : embeddedPlayer; }
+    private PlaybackBackend playbackBackend() { return nativePlayer != null ? nativePlayer : nativeOnlySource ? WAITING_FOR_NATIVE : boltPlayer != null ? boltPlayer : embeddedPlayer; }
     private void releaseBoltPlayer() { if (boltPlayer != null) { boltPlayer.close(); boltPlayer = null; } }
     private void finishRecovery() { if (recovery != null) { recovery.close(); recovery = null; } }
 
     private void useProviderControls() {
+        if (nativeOnlySource) return;
         providerInput = true;
         if (riftPlayer != null) riftPlayer.nativeControls(false);
         if (playerOverlay != null) playerOverlay.deactivate();
@@ -1376,7 +1440,7 @@ public final class MainActivity extends Activity {
     }
 
     private void playNativeVideo(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
-        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.28", captions, 0), request, 0);
+        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.29", captions, 0), request, 0);
     }
 
     private void playNativeStream(Item item, int source, int s, int e, StreamDiscovery.Stream stream, int request, long position) {
@@ -1400,7 +1464,13 @@ public final class MainActivity extends Activity {
             }
             @Override public void failed() {
                 if (!current()) return;
-                // No automatic return to web playback or endless engine retries.
+                if (source == 0 && !item.kind.equals("sport")) {
+                    // Post so a synchronous preparation failure cannot replace
+                    // the backend halfway through the original handoff setup.
+                    ui.post(() -> { if (current()) fallbackBoltToWeb(item, s, e); });
+                    return;
+                }
+                // Rift remains native-only; no endless engine retries.
                 if (playerStatus != null) { playerStatus.setText("Native playback unavailable. Use Source to try another provider, or Retry."); playerStatus.setVisibility(View.VISIBLE); }
                 revealPlayerOverlay(true);
             }
@@ -1414,6 +1484,7 @@ public final class MainActivity extends Activity {
     }
 
     private void closeStreamDiscovery() {
+        if (nativeDiscoveryDeadline != null) { ui.removeCallbacks(nativeDiscoveryDeadline); nativeDiscoveryDeadline = null; }
         if (streamDiscovery != null) { streamDiscovery.close(); streamDiscovery = null; }
     }
 

@@ -22,7 +22,7 @@
                 if (resources[i].startTime < resourceStart) continue;
                 if (!https(candidate) || !/\.(m3u8|mpd)(\?|$)/i.test(candidate)) continue;
                 var a = document.createElement('a'); a.href = candidate;
-                // Multiple unrelated origins are ambiguous. Keep web playback.
+                // Multiple unrelated origins are ambiguous. Decline the candidate.
                 if (host && host !== a.host) return;
                 host = a.host;
                 if (manifests.indexOf(candidate) < 0) manifests.push(candidate);

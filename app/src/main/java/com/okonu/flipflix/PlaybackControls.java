@@ -207,7 +207,7 @@ final class PlaybackControls extends LinearLayout {
         PlaybackBackend.State s = b == null ? new PlaybackBackend.State() : b.state();
         boolean startup = (s.providerControls && command.equals("player")) || (s.canStart && (command.equals("play") || command.equals("toggle") || command.equals("pause")));
         if (b == null || (!s.available && !startup)) {
-            Toast.makeText(activity, "Waiting for the source's video controls. Try another source if playback does not start.", Toast.LENGTH_SHORT).show(); return;
+            Toast.makeText(activity, "Playback is not ready. Use Retry or Source if it does not start.", Toast.LENGTH_SHORT).show(); return;
         }
         b.command(command, value); render();
     }

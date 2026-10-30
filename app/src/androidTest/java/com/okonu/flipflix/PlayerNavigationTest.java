@@ -207,27 +207,33 @@ public final class PlayerNavigationTest {
         }
     }
 
-    @Test public void riftUsesOfficialBridgeAndBackLeavesProviderControlsFirst() throws Exception {
+    @Test public void riftNeverExposesWebFallbackAndTimeoutKeepsRetrySourceAndBack() throws Exception {
         Object item = item("tv");
-        AtomicBoolean nativeSupported = new AtomicBoolean();
-        main(() -> {
-            invoke("showPlayer", item, 2, 3, 1);
-            stopEmbedNetwork();
-            assertNotNull(field(activity(), "riftPlayer"));
-            nativeSupported.set(((RiftPlayback) field(activity(), "riftPlayer")).nativeControlsSupported());
-            assertNull("Without an observed media URL, keep Rift's web bridge", field(activity(), "nativePlayer"));
-            invoke("useProviderControls");
-            assertEquals(true, field(activity(), "providerInput"));
-            assertEquals(View.GONE, ((View) field(activity(), "playerOverlay")).getVisibility());
-        });
-        key(KeyEvent.KEYCODE_BACK);
-        if (!nativeSupported.get()) {
-            main(() -> assertClosed(false)); // Legacy engines use one provider-owned surface.
-            return;
+        for (int source = 1; source < 2; source++) {
+            final int selectedSource = source;
+            main(() -> {
+                invoke("showPlayer", item, 2, 3, selectedSource);
+                stopEmbedNetwork();
+                assertNull("No Bolt web-playback backend", field(activity(), "boltPlayer"));
+                assertNull("No Rift web-playback backend", field(activity(), "riftPlayer"));
+                WebView web = (WebView) field(activity(), "player");
+                assertEquals(0f, web.getAlpha(), 0f); assertFalse(web.isFocusable());
+                assertFalse(((PlaybackBackend) invoke("playbackBackend")).state().available);
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    AtomicInteger hidden = new AtomicInteger();
+                    web.getWebChromeClient().onShowCustomView(new FrameLayout(activity()), hidden::incrementAndGet);
+                    assertEquals(1, hidden.get()); assertNull(field(activity(), "customVideoView"));
+                }
+                invoke("useProviderControls"); assertEquals(false, field(activity(), "providerInput"));
+                invoke("nativeDiscoveryFailed", field(activity(), "sourceRequest"));
+                assertEquals(View.GONE, web.getVisibility());
+                assertFalse(((PlaybackBackend) invoke("playbackBackend")).state().providerControls);
+                assertNotNull(findDescription((View) field(activity(), "playerOverlay"), "Retry playback"));
+                assertTrue(((android.widget.TextView) field(activity(), "playerStatus")).getText().toString().contains("native stream"));
+            });
+            key(KeyEvent.KEYCODE_BACK);
+            main(() -> assertClosed(false));
         }
-        main(() -> { assertEquals(false, field(activity(), "providerInput")); assertFullscreen(); });
-        key(KeyEvent.KEYCODE_BACK);
-        main(() -> { assertClosed(false); assertNull(field(activity(), "riftPlayer")); });
     }
 
     @Test public void nativeVideoFillsThePlayerAndIsReleasedOnBack() throws Exception {

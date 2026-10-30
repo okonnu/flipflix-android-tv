@@ -1,11 +1,14 @@
 package com.okonu.flipflix;
 
 import android.os.SystemClock;
+import android.view.View;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
+import androidx.webkit.WebViewCompat;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.filters.SdkSuppress;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.rule.ActivityTestRule;
 import org.json.JSONObject;
@@ -15,9 +18,10 @@ import org.junit.runner.RunWith;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.*;
 
-/** Exercises the real Activity and cross-origin provider protocol, not injected Java state. */
+/** Real Activity policy: Rift resolves silently; Bolt can recover into its web player. */
 @RunWith(AndroidJUnit4.class)
 public final class BoltHandoffTest {
     @Rule public ActivityTestRule<MainActivity> rule = new ActivityTestRule<>(MainActivity.class);
@@ -40,66 +44,102 @@ public final class BoltHandoffTest {
         while (!done.get() && SystemClock.uptimeMillis() < end) { main(() -> done.set(check.ready())); SystemClock.sleep(50); }
         assertTrue(message, done.get());
     }
-    @Test public void boltMessagesSurviveSwitchToRiftAndPersistHistory() throws Exception {
+    @Test @SdkSuppress(minSdkVersion = 26)
+    public void riftStaysNativeOnlyButBoltRestoresWebAudioAndResumeAfterNativeFailure() throws Exception {
         JSONObject catalog = new JSONObject().put("id", 45745).put("media_type", "movie").put("title", "Protocol fixture");
         Class<?> type = Class.forName("com.okonu.flipflix.MainActivity$Item");
         java.lang.reflect.Method from = type.getDeclaredMethod("from", JSONObject.class, String.class); from.setAccessible(true);
         Object item = from.invoke(null, catalog, "movie");
+        AtomicBoolean loaded = new AtomicBoolean();
+        AtomicReference<String> finishedPage = new AtomicReference<>("");
         main(() -> {
             rule.getActivity().getSharedPreferences("watch_history", 0).edit().clear().commit();
-            invoke("showPlayerAtPosition", item, 1, 1, 0, -1L);
+            PlaybackBackend.State saved = new PlaybackBackend.State();
+            saved.available = true; saved.seekable = true; saved.position = 300000; saved.duration = 900000;
+            ((WatchHistory) field("watchHistory")).save("movie:45745", catalog, 1, 1, 0, saved);
+            invoke("showPlayer", item, 1, 1, 1);
             WebView web = (WebView) field("player"); web.stopLoading();
+            WebViewClient productionClient = web.getWebViewClient();
             web.setWebViewClient(new WebViewClient() {
                 @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest request) {
-                    String host = request.getUrl().getHost();
-                    String fixture = "vidbolt.xyz".equals(host) ? BOLT : RIFT;
+                    String fixture = "vidbolt.xyz".equals(request.getUrl().getHost()) ? BOLT : RIFT;
                     return new WebResourceResponse("text/html", "UTF-8", new ByteArrayInputStream(fixture.getBytes(StandardCharsets.UTF_8)));
                 }
+                @Override public void onPageFinished(WebView v, String url) {
+                    productionClient.onPageFinished(v, url); loaded.set(true);
+                    finishedPage.set(url);
+                }
             });
-            invoke("loadSource", item, 0, 1, 1);
+            invoke("loadSource", item, 1, 1, 1);
         });
         try {
-            await("Bolt's documented timeupdate must reach the app even without an exposed HTML video", () ->
-                ((PlaybackBackend) invoke("playbackBackend")).state().position == 225000);
+            await("Rift fixture loads", loaded::get);
+            main(() -> {
+                WebView web = (WebView) field("player");
+                assertTrue(WebViewCompat.isAudioMuted(web));
+                assertEquals(0f, web.getAlpha(), 0f); assertFalse(web.isFocusable());
+                assertFalse(((PlaybackBackend) invoke("playbackBackend")).state().available);
+                assertNull(field("riftPlayer"));
+                ((PlaybackRecovery) field("recovery")).sample(SystemClock.uptimeMillis());
+                assertEquals(300000, ((PlaybackRecovery) field("recovery")).restartPosition());
+                int old = (Integer) field("sourceRequest");
+                Runnable expired = (Runnable) field("nativeDiscoveryDeadline");
+                assertNotNull(expired); expired.run();
+                assertNull(field("nativeDiscoveryDeadline")); assertNull(field("streamDiscovery"));
+                assertEquals(View.GONE, web.getVisibility());
+                invoke("loadSource", item, 1, 1, 1);
+                int current = (Integer) field("sourceRequest");
+                assertTrue(current > old); expired.run();
+                assertEquals(current, field("sourceRequest"));
+                assertNotNull(field("streamDiscovery")); assertNull(field("nativePlayer"));
+                assertEquals(300000, ((PlaybackRecovery) field("recovery")).restartPosition());
+                expired = (Runnable) field("nativeDiscoveryDeadline");
+                invoke("loadSource", item, 2, 1, 1); expired.run();
+                assertEquals(false, field("nativeOnlySource"));
+                assertSame(field("embeddedPlayer"), invoke("playbackBackend"));
+                assertNull(field("nativeDiscoveryDeadline"));
+            });
+            // Wait for the actual replacement document, not a late onPageFinished
+            // from an outgoing retry. Audio changes at this committed-page boundary.
+            await("Fast replacement restores WebView audio", () -> {
+                WebView web = (WebView) field("player");
+                return "https://pantyflix.com/".equals(finishedPage.get()) && !WebViewCompat.isAudioMuted(web);
+            });
             main(() -> {
                 invoke("loadSource", item, 1, 1, 1);
-                assertEquals(225000, ((PlaybackRecovery) field("recovery")).restartPosition());
+                assertTrue(WebViewCompat.isAudioMuted((WebView) field("player")));
+                invoke("loadSource", item, 0, 1, 1);
             });
-            await("Rift must acknowledge Bolt's saved position", () -> {
-                ((PlaybackRecovery) field("recovery")).sample(SystemClock.uptimeMillis());
-                return ((PlaybackBackend) invoke("playbackBackend")).state().position == 225000;
-            });
-            main(() -> {
-                ((PlaybackRecovery) field("recovery")).sample(SystemClock.uptimeMillis());
-                WatchHistory store = new WatchHistory(rule.getActivity().getSharedPreferences("watch_history", 0));
-                assertNotNull(store.get("movie:45745"));
-                assertEquals(225000, store.get("movie:45745").resumePosition());
-                assertEquals(1, store.get("movie:45745").source);
-                ((PlaybackBackend) invoke("playbackBackend")).command("seek", "300000");
-            });
-            await("Rift advanced before switching back", () -> ((PlaybackBackend) invoke("playbackBackend")).state().position == 300000);
-            main(() -> invoke("loadSource", item, 0, 1, 1));
-            await("Switching back to Bolt restores the newer shared checkpoint", () -> {
-                ((PlaybackRecovery) field("recovery")).sample(SystemClock.uptimeMillis());
-                return ((PlaybackBackend) invoke("playbackBackend")).state().position == 300000;
+            await("Bolt remains a playable web fallback with restored audio and resume", () -> {
+                PlaybackBackend backend = (PlaybackBackend) invoke("playbackBackend");
+                return field("boltPlayer") == backend && backend.state().available && backend.state().position == 300000
+                    && !WebViewCompat.isAudioMuted((WebView) field("player"));
             });
             main(() -> {
                 ((PlaybackRecovery) field("recovery")).sample(SystemClock.uptimeMillis());
+                assertEquals(1f, ((WebView) field("player")).getAlpha(), 0f);
+                StreamDiscovery.Stream broken = new StreamDiscovery.Stream("file:///missing-native-source.mp4", "https://example.com/", "test", null, 0);
+                invoke("handoffToNative", item, 0, 1, 1, broken, field("sourceRequest"), 0L);
+            });
+            await("Failed VLC attempt returns once to Bolt Web at the saved position", () -> {
+                PlaybackBackend backend = (PlaybackBackend) invoke("playbackBackend");
+                return field("nativePlayer") == null && field("boltPlayer") == backend
+                    && backend.state().available && backend.state().position == 300000;
+            });
+            main(() -> {
+                assertNull("Fallback must not loop into another native attempt", field("streamDiscovery"));
+                assertNull(field("nativeDiscoveryDeadline"));
+                assertFalse(WebViewCompat.isAudioMuted((WebView) field("player")));
                 invoke("closePlayer");
-                WatchHistory store = new WatchHistory(rule.getActivity().getSharedPreferences("watch_history", 0));
-                assertEquals(300000, store.get("movie:45745").resumePosition());
-                assertEquals(0, store.get("movie:45745").source);
+                assertEquals(300000, ((WatchHistory) field("watchHistory")).get("movie:45745").resumePosition());
             });
         } finally { main(() -> { invoke("closePlayer"); rule.getActivity().getSharedPreferences("watch_history", 0).edit().clear().commit(); }); }
     }
-    // Documented Bolt postMessage contract. No queryable video in this document.
     private static final String BOLT = "<html><body><script>var t=Number(new URL(location.href).searchParams.get('startAt')||225);"
         + "function emit(x){parent.postMessage(x,'*')}"
         + "addEventListener('message',function(e){if(e.data.type==='seek'){t=e.data.time;emit({type:'timeupdate',time:t})}});"
         + "addEventListener('load',function(){emit({type:'ready'});emit({type:'durationchange',duration:900});"
         + "emit({type:'play'});emit({type:'timeupdate',time:t})});</script></body></html>";
-    private static final String RIFT = "<html><body><script>var t=0;function emit(){parent.postMessage({type:'vidrift:state',"
-        + "tmdbId:45745,mediaType:'movie',currentTime:t,duration:900,paused:false},'*')}"
-        + "addEventListener('message',function(e){if(e.data.type==='vidrift:resume'){t=e.data.currentTime;emit()}"
-        + "if(e.data.type==='vidrift:get-state')emit()});</script></body></html>";
+    private static final String RIFT = "<html><body><script>parent.postMessage({type:'vidrift:state',"
+        + "tmdbId:45745,mediaType:'movie',currentTime:2,duration:900,paused:false},'*');</script></body></html>";
 }

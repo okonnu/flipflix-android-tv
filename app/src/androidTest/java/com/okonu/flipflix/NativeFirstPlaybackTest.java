@@ -103,8 +103,10 @@ public final class NativeFirstPlaybackTest {
                     NativePlayback nativeVideo = (NativePlayback) field("nativePlayer");
                     PlaybackBackend backend = (PlaybackBackend) invoke("playbackBackend");
                     PlaybackBackend.State s = backend.state();
-                    nativeReady.set(nativeVideo != null && s.available && s.position > 1000);
-                    status[0] = "source=" + source + " engine=" + (nativeVideo == null ? "Web" : nativeVideo.engine())
+                    int actualSource = (Integer) field("currentSourceIndex");
+                    nativeReady.set(actualSource == source && nativeVideo != null && s.available && s.position > 1000);
+                    status[0] = "requestedSource=" + source + " actualSource=" + actualSource + " engine="
+                        + (nativeVideo == null ? ((Boolean) field("nativeOnlySource") ? "Resolving" : "Web") : nativeVideo.engine())
                         + " ready=" + s.available + " position=" + s.position + " duration=" + s.duration;
                 });
                 SystemClock.sleep(1000);
@@ -323,7 +325,9 @@ public final class NativeFirstPlaybackTest {
                 }
                 @Override public void onPageFinished(WebView view, String url) { loaded.set(true); }
             });
-            discovery[0] = new StreamDiscovery(web[0], "https://vidbolt.xyz/movie/45745", stream -> { assertEquals(900000, stream.duration); found.incrementAndGet(); });
+            discovery[0] = new StreamDiscovery(web[0], "https://vidbolt.xyz/movie/45745", true, stream -> { assertEquals(900000, stream.duration); found.incrementAndGet(); });
+            assertTrue(discovery[0].active());
+            assertTrue(androidx.webkit.WebViewCompat.isAudioMuted(web[0]));
             web[0].loadUrl("https://vidbolt.xyz/movie/45745");
         });
         try {
