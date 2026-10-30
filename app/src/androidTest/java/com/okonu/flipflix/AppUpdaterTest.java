@@ -165,7 +165,10 @@ public final class AppUpdaterTest {
         }
         StringBuilder hash = new StringBuilder();
         for (byte b : digest.digest()) hash.append(String.format(java.util.Locale.US, "%02x", b & 255));
-        GithubRelease r = new GithubRelease("0.1.28", release("0.1.28").url, "sha256:" + hash, fixture.length());
+        PackageInfo candidate = rule.getActivity().getPackageManager().getPackageArchiveInfo(fixture.getAbsolutePath(), 0);
+        assertNotNull("Future APK fixture has a valid manifest", candidate);
+        String candidateVersion = candidate.versionName;
+        GithubRelease r = new GithubRelease(candidateVersion, release(candidateVersion).url, "sha256:" + hash, fixture.length());
         UpdateRepository repository = new UpdateRepository(rule.getActivity()) {
             @Override HttpURLConnection open(String address) throws java.io.IOException {
                 return new HttpURLConnection(new URL(address)) {
@@ -177,7 +180,7 @@ public final class AppUpdaterTest {
             }
         };
         try {
-            repository.prepare(r); assertEquals("0.1.28", repository.pending().version);
+            repository.prepare(r); assertEquals(candidateVersion, repository.pending().version);
             Intent intent = AppUpdater.installIntent(rule.getActivity(), repository.apk());
             assertEquals("content", intent.getData().getScheme()); assertEquals(Intent.ACTION_INSTALL_PACKAGE, intent.getAction());
             assertTrue((intent.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0);

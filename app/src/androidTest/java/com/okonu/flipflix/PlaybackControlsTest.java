@@ -22,10 +22,6 @@ import android.graphics.Rect;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.util.TypedValue;
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.MimeTypes;
-import androidx.media3.common.Player;
-import androidx.media3.ui.AspectRatioFrameLayout;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -42,7 +38,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Real Android TV input and player tests. No test entry point is shipped in the APK. */
-@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 @RunWith(AndroidJUnit4.class)
 public final class PlaybackControlsTest {
     @Rule public final ActivityTestRule<MainActivity> activityRule = new ActivityTestRule<>(MainActivity.class, false, false);
@@ -187,62 +182,75 @@ public final class PlaybackControlsTest {
         File movie = copyAsset("silent-black-25s.mp4");
         File captions = copyAsset("test-captions.vtt");
         NativePlayback[] nativeVideo = new NativePlayback[1];
-        main(() -> {
-            nativeVideo[0] = new NativePlayback(activity, movie.toURI().toString(), "https://example.com/", null);
-            nativeVideo[0].player.setMediaItem(new MediaItem.Builder().setUri(movie.toURI().toString())
-                .setSubtitleConfigurations(Collections.singletonList(new MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(captions))
-                    .setMimeType(MimeTypes.TEXT_VTT).setLanguage("en").setLabel("English test").build())).build());
-        });
+        main(() -> nativeVideo[0] = new NativePlayback(activity, movie.toURI().toString(), "https://example.com/", null));
         install(nativeVideo[0]);
         main(() -> { frame.addView(nativeVideo[0].view, 0, new FrameLayout.LayoutParams(-1, -1)); nativeVideo[0].start(); });
         try {
-            AtomicBoolean ready = new AtomicBoolean();
-            long deadline = SystemClock.uptimeMillis() + 15000;
-            while (!ready.get() && SystemClock.uptimeMillis() < deadline) {
-                main(() -> ready.set(nativeVideo[0].player.getPlaybackState() == Player.STATE_READY));
-                SystemClock.sleep(100);
-            }
-            assertTrue("Native video prepared", ready.get());
+            waitFor(() -> nativeVideo[0].state().available);
             main(() -> {
                 NativePlayback n = nativeVideo[0];
                 assertTrue(n.state().seekable); assertTrue(n.state().duration > 24000);
                 n.command("pause", ""); assertTrue(n.state().paused);
-                n.command("seek", "12000"); assertEquals(12000, n.state().position);
+                n.command("seek", "12000");
                 n.command("mute", ""); assertTrue(n.state().muted);
-                n.command("mute", ""); assertFalse(n.state().muted);
-                PlaybackBackend.State state = n.state();
-                assertTrue("Real video track available", state.qualities.size() > 1);
-                n.command("quality", state.qualities.get(1).id);
-                assertFalse(n.state().qualities.get(0).selected);
-                n.command("quality", "auto"); assertTrue(n.state().qualities.get(0).selected);
-                assertTrue("Real caption track available", state.subtitles.size() > 1);
-                n.command("subtitle", state.subtitles.get(1).id);
-                assertFalse(n.player.getTrackSelectionParameters().disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_TEXT));
-                n.command("subtitle", "off");
-                assertTrue(n.player.getTrackSelectionParameters().disabledTrackTypes.contains(androidx.media3.common.C.TRACK_TYPE_TEXT));
-                n.command("play", ""); assertFalse(n.state().paused);
             });
-            // A square player around the 4:3 fixture gives real letterboxing to test.
+            // The TV audio output is recreated during a seek. Assert the actual
+            // acknowledged volume, not the value in the same JNI call stack.
+            waitFor(() -> NativeFirstPlaybackTest.vlcPlayer(nativeVideo[0]).getVolume() == 0);
             main(() -> {
+                NativePlayback n = nativeVideo[0];
+                n.command("mute", ""); assertFalse(n.state().muted);
+            });
+            waitFor(() -> NativeFirstPlaybackTest.vlcPlayer(nativeVideo[0]).getVolume() == 100);
+            main(() -> {
+                NativePlayback n = nativeVideo[0];
+                assertEquals("VLC reports only the adaptive quality it actually supports", 1, n.state().qualities.size());
+                assertEquals("auto", n.state().qualities.get(0).id);
+                assertTrue(NativeFirstPlaybackTest.vlcPlayer(n).addSlave(org.videolan.libvlc.Media.Slave.Type.Subtitle,
+                    android.net.Uri.fromFile(captions), true));
+            });
+            waitFor(() -> Math.abs(nativeVideo[0].state().position - 12000) < 1000);
+            waitFor(() -> nativeVideo[0].state().subtitles.size() > 1);
+            main(() -> {
+                NativePlayback n = nativeVideo[0];
+                n.command("subtitle", n.state().subtitles.get(1).id);
+            });
+            waitFor(() -> !nativeVideo[0].state().subtitles.get(0).selected);
+            main(() -> nativeVideo[0].command("subtitle", "off"));
+            waitFor(() -> nativeVideo[0].state().subtitles.get(0).selected);
+            main(() -> {
+                nativeVideo[0].command("play", ""); assertFalse(nativeVideo[0].state().paused);
                 nativeVideo[0].command("pause", "");
                 nativeVideo[0].view.setLayoutParams(new FrameLayout.LayoutParams(600, 600, Gravity.CENTER));
                 assertTrue(nativeVideo[0].state().canResize);
                 assertFalse(nativeVideo[0].state().fillScreen);
-                assertEquals(AspectRatioFrameLayout.RESIZE_MODE_FIT, nativeVideo[0].view.getResizeMode());
             });
-            View content = nativeVideo[0].view.findViewById(androidx.media3.ui.R.id.exo_content_frame);
-            waitFor(() -> content.getWidth() == 600 && content.getHeight() < 600);
+            View[] surface = new View[1];
+            waitFor(() -> {
+                surface[0] = findVideoSurface(nativeVideo[0].view);
+                return surface[0] != null && surface[0].getWidth() == 600 && surface[0].getHeight() < 600;
+            });
             main(() -> {
                 nativeVideo[0].command("resize", "fill");
                 assertTrue(nativeVideo[0].state().fillScreen);
-                assertEquals(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, nativeVideo[0].view.getResizeMode());
                 assertTrue("Resizing must not resume a paused video", nativeVideo[0].state().paused);
             });
-            waitFor(() -> content.getWidth() > 600 && content.getHeight() == 600);
+            waitFor(() -> surface[0].getWidth() > 600 && surface[0].getHeight() == 600);
             main(() -> nativeVideo[0].command("resize", "fit"));
-            waitFor(() -> content.getWidth() == 600 && content.getHeight() < 600);
+            waitFor(() -> surface[0].getWidth() == 600 && surface[0].getHeight() < 600);
             main(() -> assertFalse(nativeVideo[0].state().fillScreen));
         } finally { main(() -> { controls.deactivate(); nativeVideo[0].release(); }); }
+    }
+
+    private static View findVideoSurface(View view) {
+        if (view instanceof android.view.SurfaceView && view.getVisibility() == View.VISIBLE) return view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = findVideoSurface(group.getChildAt(i)); if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @Test public void testFillControlTogglesWithRemoteAndKeepsFocus() {

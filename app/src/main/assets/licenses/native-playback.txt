@@ -1,8 +1,8 @@
 Darkflix native playback components
 
-Media3 1.5.1, Copyright The Android Open Source Project.
+AndroidX support libraries, Copyright The Android Open Source Project.
 Licensed under the Apache License, Version 2.0.
-Source: https://github.com/androidx/media/tree/1.5.1
+Source: https://android.googlesource.com/platform/frameworks/support/
 License: https://www.apache.org/licenses/LICENSE-2.0
 
 LibVLC for Android 3.7.7, Copyright VLC authors and VideoLAN.

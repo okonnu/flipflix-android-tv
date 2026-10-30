@@ -21,8 +21,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
 
-/** Native TV navigation and actual local Media3 decoding. No external stream dependency. */
-@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
+/** Native TV navigation and actual local VLC decoding. No external stream dependency. */
 @RunWith(AndroidJUnit4.class)
 public final class DiscoveryTest {
     @Rule public ActivityTestRule<MainActivity> rule = new ActivityTestRule<>(MainActivity.class);

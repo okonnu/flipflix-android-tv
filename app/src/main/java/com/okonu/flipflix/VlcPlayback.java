@@ -12,7 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Second native engine. No VLC activity or provider-owned controls. */
+/** Native LibVLC engine. No external VLC activity or provider-owned controls. */
 final class VlcPlayback implements PlaybackBackend {
     final VLCVideoLayout view;
     private final LibVLC library;

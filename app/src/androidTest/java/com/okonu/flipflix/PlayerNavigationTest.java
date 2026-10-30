@@ -10,7 +10,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import androidx.media3.common.Player;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SdkSuppress;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -30,7 +29,6 @@ import static org.junit.Assert.*;
 
 /** Exercise the real Activity player, not just the overlay in isolation. */
 @RunWith(AndroidJUnit4.class)
-@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 public final class PlayerNavigationTest {
     @Rule public ActivityTestRule<MainActivity> rule = new ActivityTestRule<>(MainActivity.class);
     private MainActivity activity() { return rule.getActivity(); }
@@ -89,8 +87,8 @@ public final class PlayerNavigationTest {
         if (sports) assertEquals("Live Sports", field(activity(), "section"));
     }
     private int countButtons(View view) {
-        // Media3 has its own disabled controller children; only inspect app chrome.
-        if (view instanceof androidx.media3.ui.PlayerView || view instanceof WebView) return 0;
+        // Only inspect app chrome, not provider-owned elements.
+        if (view instanceof WebView) return 0;
         int count = view instanceof Button ? 1 : 0;
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) count += countButtons(((ViewGroup) view).getChildAt(i));
         return count;
@@ -248,7 +246,7 @@ public final class PlayerNavigationTest {
         });
         AtomicBoolean ready = new AtomicBoolean(); long deadline = SystemClock.uptimeMillis() + 12000;
         while (!ready.get() && SystemClock.uptimeMillis() < deadline) {
-            main(() -> ready.set(nativeVideo[0].player.getPlaybackState() == Player.STATE_READY)); SystemClock.sleep(100);
+            main(() -> ready.set(nativeVideo[0].state().available)); SystemClock.sleep(100);
         }
         assertTrue("Fixture video plays through the real Activity", ready.get());
         main(() -> {
@@ -257,7 +255,7 @@ public final class PlayerNavigationTest {
             assertEquals(root.getHeight(), nativeVideo[0].view.getHeight());
         });
         key(KeyEvent.KEYCODE_BACK);
-        main(() -> { assertClosed(false); assertNull(nativeVideo[0].view.getPlayer()); assertNull(nativeVideo[0].view.getParent()); });
+        main(() -> { assertClosed(false); assertFalse(nativeVideo[0].state().available); assertEquals(0, nativeVideo[0].view.getChildCount()); assertNull(nativeVideo[0].view.getParent()); });
     }
 
     @Test @SdkSuppress(minSdkVersion = 26)

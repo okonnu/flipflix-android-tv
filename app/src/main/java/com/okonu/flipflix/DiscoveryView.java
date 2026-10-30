@@ -8,7 +8,6 @@ import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.TextureView;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
@@ -67,7 +66,7 @@ final class DiscoveryView extends FrameLayout {
         artwork = new FrameLayout(activity); addView(artwork);
         poster = image(); incoming = image(); artwork.addView(poster, new LayoutParams(-1, -1));
         artwork.addView(incoming, new LayoutParams(-1, -1));
-        TextureView video = new TextureView(activity); artwork.addView(video, new LayoutParams(-1, -1));
+        FrameLayout video = new FrameLayout(activity); artwork.addView(video, new LayoutParams(-1, -1));
         preview = new AmbientPreview(activity, video);
         View leftShade = new View(activity);
         leftShade.setBackground(AppStyle.leftShade());

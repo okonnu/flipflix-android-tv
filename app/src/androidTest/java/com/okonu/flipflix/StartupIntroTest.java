@@ -10,7 +10,6 @@ import android.graphics.drawable.VectorDrawable;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
-import androidx.media3.common.MediaItem;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -24,7 +23,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
 
-@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 @RunWith(AndroidJUnit4.class)
 public final class StartupIntroTest {
     @Rule public ActivityTestRule<MainActivity> rule = new ActivityTestRule<>(MainActivity.class, false, false);
@@ -78,13 +76,22 @@ public final class StartupIntroTest {
             assertTrue(intro.overlay.hasFocus());
         });
         await("The bundled soundtrack should decode without a network request", () -> intro.player != null && intro.player.isPlaying(), 5000);
+        await("VLC outputs the bundled soundtrack", () -> {
+            org.videolan.libvlc.interfaces.IMedia media = intro.player.getMedia();
+            if (media == null) return false;
+            try {
+                org.videolan.libvlc.interfaces.IMedia.Stats stats = media.getStats();
+                return stats != null && stats.decodedAudio > 0 && stats.playedAbuffers > 0 && intro.player.getVolume() == 100;
+            } finally { media.release(); }
+        }, 2000);
         main(() -> {
             assertTrue("Vector lockup must actually occupy the screen, not remain a 1px placeholder",
                 intro.logo.lockup.getWidth() > intro.logo.getWidth() / 3);
             assertEquals(intro.logo.lockup.getLayoutParams().height, intro.logo.lockup.getHeight());
             assertEquals(intro.logo.lockup.getWidth(), intro.logo.pieces[0].getWidth());
         });
-        main(() -> assertEquals(8000, intro.player.getDuration(), 50));
+        await("Soundtrack duration available", () -> intro.player.getLength() > 0, 1000);
+        main(() -> assertEquals(8000, intro.player.getLength(), 50));
         await("The whole vector layer must become translucent over Home", () -> intro.isActive() && intro.overlay.getAlpha() < .85f && intro.overlay.getAlpha() > .1f, 9000);
         main(() -> {
             assertSame(home, discovery.getParent());
@@ -155,6 +162,18 @@ public final class StartupIntroTest {
         });
     }
 
+    @Test public void losingAudioFocusFadesOutAndReleasesVlc() {
+        MainActivity a = launch(); StartupIntro intro = intro(a);
+        await("Soundtrack playing", () -> intro.player != null && intro.player.isPlaying(), 5000);
+        main(() -> ((android.media.AudioManager.OnAudioFocusChangeListener) field(intro, "focus"))
+            .onAudioFocusChange(android.media.AudioManager.AUDIOFOCUS_LOSS));
+        await("Audio focus loss returns to Home", () -> !intro.isActive(), 1500);
+        main(() -> {
+            assertNull(intro.player); assertNull(field(intro, "library")); assertNull(field(intro, "soundtrack"));
+            assertEquals(false, field(intro, "focusHeld")); assertEquals(false, field(intro, "receiverRegistered"));
+        });
+    }
+
     @Test public void recreationDoesNotReplayIntro() {
         try (ActivityScenario<MainActivity> scenario = ActivityScenario.launch(introIntent())) {
             scenario.onActivity(a -> assertNotNull(intro(a)));
@@ -166,8 +185,9 @@ public final class StartupIntroTest {
     @Test public void unavailableMediaCannotTrapViewerOnBlackScreen() {
         MainActivity a = launch(); StartupIntro intro = intro(a);
         main(() -> {
-            intro.player.setMediaItem(MediaItem.fromUri("android.resource://" + a.getPackageName() + "/not-a-resource"));
-            intro.player.prepare(); intro.player.play();
+            org.videolan.libvlc.Media missing = new org.videolan.libvlc.Media(intro.player.getLibVLC(),
+                android.net.Uri.parse("file:///missing-startup-soundtrack.m4a"));
+            intro.player.stop(); intro.player.setMedia(missing); missing.release(); intro.player.play();
         });
         await("Decode failure should reveal Home", () -> !intro.isActive(), 3000);
         main(() -> {
