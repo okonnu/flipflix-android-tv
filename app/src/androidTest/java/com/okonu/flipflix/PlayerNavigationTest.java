@@ -182,14 +182,16 @@ public final class PlayerNavigationTest {
         select("Previous episode"); main(this::stopEmbedNetwork);
         instrumentation().waitForIdleSync();
         main(() -> { assertFullscreen(); assertEquals(3, field(activity(), "episode")); });
-        select("Source: Bolt / Web");
-        awaitDialogFocus("Bolt");
+        select("Source: Bolt - Native");
+        awaitDialogFocus("Bolt - Native");
         key(KeyEvent.KEYCODE_BACK); // Dismiss source menu, not playback.
         main(this::assertFullscreen);
-        select("Source: Bolt / Web");
-        awaitDialogFocus("Bolt");
-        key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Rift");
-        key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Fast");
+        select("Source: Bolt - Native");
+        awaitDialogFocus("Bolt - Native");
+        key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Bolt - Web");
+        key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Rift - Native");
+        key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Rift - Web");
+        key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Fast - Native");
         key(KeyEvent.KEYCODE_DPAD_CENTER);
         main(this::stopEmbedNetwork); instrumentation().waitForIdleSync();
         main(() -> { assertFullscreen(); assertEquals(2, field(activity(), "currentSourceIndex")); });
@@ -201,8 +203,8 @@ public final class PlayerNavigationTest {
     @Test public void repeatedlyReopenedSourceMenuAcceptsRemoteMovement() throws Exception {
         start(item("tv"));
         for (int i = 0; i < 8; i++) {
-            select("Source: Bolt / Web"); awaitDialogFocus("Bolt");
-            key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Rift");
+            select("Source: Bolt - Native"); awaitDialogFocus("Bolt - Native");
+            key(KeyEvent.KEYCODE_DPAD_DOWN); awaitDialogFocus("Bolt - Web");
             key(KeyEvent.KEYCODE_BACK);
         }
     }

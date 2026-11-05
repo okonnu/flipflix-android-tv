@@ -88,7 +88,14 @@ final class VlcPlayback implements PlaybackBackend {
         if (paused) player.pause();
         player.setVolume(muted ? 0 : 100);
     }
-    void start() { if (!closed) { if (paused || muted) player.setVolume(0); player.play(); } }
+    void start() {
+        if (!closed) {
+            // Do not inherit a previous LibVLC session's muted output. Only an
+            // explicitly muted/paused preparation is silent; ready restores it.
+            player.setVolume(paused || muted ? 0 : 100);
+            player.play();
+        }
+    }
     void release() {
         if (closed) return;
         closed = true;

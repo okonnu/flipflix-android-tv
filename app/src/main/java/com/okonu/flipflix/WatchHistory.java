@@ -24,7 +24,7 @@ final class WatchHistory {
         Entry(String key, JSONObject value) throws Exception {
             this.key = key; catalog = value.getJSONObject("catalog");
             season = value.optInt("season", 1); episode = value.optInt("episode", 1);
-            source = Math.max(0, Math.min(2, value.optInt("source")));
+            source = PlaybackChoice.normalize(value.optInt("source"));
             position = Math.max(0, value.optLong("position")); duration = Math.max(0, value.optLong("duration"));
             updated = value.optLong("updated"); finished = value.optBoolean("finished");
         }

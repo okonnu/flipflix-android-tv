@@ -215,7 +215,7 @@ public final class WatchHistoryTest {
         Class<?> type = Class.forName("com.okonu.flipflix.MainActivity$Item");
         java.lang.reflect.Method from = type.getDeclaredMethod("from", JSONObject.class, String.class); from.setAccessible(true);
         Object item = from.invoke(null, json, "movie");
-        for (int source = 0; source < 3; source++) {
+        for (int source = 0; source < PlaybackChoice.COUNT; source++) {
             final int chosen = source;
             main(() -> {
                 store.save("movie:12", json, 1, 1, 1, state(120000));

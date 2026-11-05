@@ -1,5 +1,5 @@
 <!doctype html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><title>Bolt player</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}iframe{width:100%;height:100%;border:0;display:block}</style>
 </head><body><iframe id="bolt" title="Bolt video player" allow="autoplay;encrypted-media;fullscreen;picture-in-picture" allowfullscreen></iframe>
 <script>
@@ -17,6 +17,7 @@
     window.boltCommand = function (session, data) {
         if (session === config.session) frame.contentWindow.postMessage(data, origin);
     };
+    frame.onload = function () { if (config.directInput) frame.focus(); };
     frame.src = config.url;
 }());
 </script></body></html>

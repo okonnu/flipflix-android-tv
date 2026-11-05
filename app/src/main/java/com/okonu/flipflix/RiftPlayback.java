@@ -21,14 +21,21 @@ final class RiftPlayback implements PlaybackBackend {
     private final Runnable providerControls, exit;
     private final String session = UUID.randomUUID().toString();
     private final RiftChrome chrome;
+    private final boolean directInput;
     private State latest = new State();
     private boolean closed, fill;
 
     static boolean supported() { return WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER); }
 
     RiftPlayback(WebView web, Notice notice, Runnable providerControls, Runnable exit) {
+        this(web, notice, providerControls, exit, false);
+    }
+
+    RiftPlayback(WebView web, Notice notice, Runnable providerControls, Runnable exit, boolean directInput) {
         this.web = web; this.notice = notice; this.providerControls = providerControls; this.exit = exit;
-        chrome = new RiftChrome(web, session);
+        this.directInput = directInput;
+        // Explicit Web mode never installs the stylesheet hiding provider inputs.
+        chrome = directInput ? null : new RiftChrome(web, session);
         WebViewCompat.addWebMessageListener(web, "FlipflixRift", Collections.singleton(ORIGIN),
             (view, message, origin, mainFrame, reply) -> {
                 if (!closed && view == web && mainFrame && ORIGIN.equals(origin.toString())) receive(message.getData());
@@ -41,7 +48,8 @@ final class RiftPlayback implements PlaybackBackend {
             byte[] buffer = new byte[4096]; int n;
             while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
             JSONObject config = new JSONObject().put("url", url + "?uiScale=1.5&fs=parent&exit=1&hide=next,episodes")
-                .put("id", id).put("kind", kind).put("season", season).put("episode", episode).put("session", session);
+                .put("id", id).put("kind", kind).put("season", season).put("episode", episode).put("session", session)
+                .put("directInput", directInput);
             latest.providerControls = true;
             web.loadDataWithBaseURL(ORIGIN + "/rift/", out.toString("UTF-8").replace("__RIFT_CONFIG__", config.toString()), "text/html", "UTF-8", null);
         } catch (Exception failure) { notice.accept("Rift could not load. Choose Retry or another source."); }
@@ -86,7 +94,9 @@ final class RiftPlayback implements PlaybackBackend {
                 latest.ended = type.equals("vidrift:ended");
             } else if (type.equals("vidrift:command-error")) {
                 String reason = data.optString("reason");
-                notice.accept(reason.equals("click-required") ? "Rift needs an action in its player first. Open Playback settings > Use Rift player controls."
+                notice.accept(reason.equals("click-required") ? (directInput
+                    ? "Rift needs an action in its player first. Use the remote to select Play."
+                    : "Rift needs an action in its player first. Open Playback settings > Use Rift player controls.")
                     : reason.equals("not-ready") ? "Rift is still preparing this source. Try again when ready."
                     : "Rift could not apply that option (" + reason + "). Reopen the menu for current choices.");
             } else if (type.equals("vidrift:exit")) exit.run();
@@ -119,11 +129,11 @@ final class RiftPlayback implements PlaybackBackend {
         return choices;
     }
     @Override public State state() { return latest; }
-    boolean nativeControlsSupported() { return chrome.supported(); }
-    void nativeControls(boolean enabled) { chrome.nativeControls(enabled); }
+    boolean nativeControlsSupported() { return chrome != null && chrome.supported(); }
+    void nativeControls(boolean enabled) { if (chrome != null) chrome.nativeControls(enabled); }
     @Override public void command(String name, String value) {
         if (closed) return;
-        if (name.equals("player")) { chrome.nativeControls(false); providerControls.run(); return; }
+        if (name.equals("player")) { nativeControls(false); providerControls.run(); return; }
         try {
             JSONObject command = new JSONObject();
             if (name.equals("toggle")) name = latest.paused ? "play" : "pause";
@@ -150,5 +160,5 @@ final class RiftPlayback implements PlaybackBackend {
             web.evaluateJavascript("window.riftCommand && window.riftCommand(" + JSONObject.quote(session) + "," + command + ")", null);
         } catch (Exception ignored) { notice.accept("Rift could not apply that control."); }
     }
-    void close() { if (closed) return; closed = true; latest = new State(); chrome.close(); WebViewCompat.removeWebMessageListener(web, "FlipflixRift"); }
+    void close() { if (closed) return; closed = true; latest = new State(); if (chrome != null) chrome.close(); WebViewCompat.removeWebMessageListener(web, "FlipflixRift"); }
 }

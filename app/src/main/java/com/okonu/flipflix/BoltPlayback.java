@@ -27,6 +27,9 @@ final class BoltPlayback implements PlaybackBackend, AutoCloseable {
             });
     }
     void load(String url, long position) {
+        load(url, position, false);
+    }
+    void load(String url, long position, boolean directInput) {
         try (InputStream input = web.getContext().getAssets().open("bolt-player.html");
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] bytes = new byte[4096]; int count;
@@ -34,7 +37,7 @@ final class BoltPlayback implements PlaybackBackend, AutoCloseable {
             // Provider-native startup hint complements the acknowledged seek after readiness.
             url += "&nextEpisodeButton=false&episodesButton=false";
             if (position >= 0) url += "&startAt=" + (position / 1000.0);
-            JSONObject config = new JSONObject().put("url", url).put("session", session);
+            JSONObject config = new JSONObject().put("url", url).put("session", session).put("directInput", directInput);
             web.loadDataWithBaseURL(ORIGIN + "/bolt/", out.toString("UTF-8").replace("__BOLT_CONFIG__", config.toString()), "text/html", "UTF-8", null);
         } catch (Exception failure) { web.loadUrl(url); }
     }

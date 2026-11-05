@@ -22,6 +22,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.ScrollView;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -82,6 +83,7 @@ public final class MainActivity extends Activity {
     private BoltPlayback boltPlayer;
     private RiftPlayback riftPlayer;
     private AlertDialog playerSourceDialog;
+    private AlertDialog webActionsDialog;
     private boolean providerInput;
     private int providerReturnKey = -1;
     private TextView playerStatus;
@@ -996,14 +998,14 @@ public final class MainActivity extends Activity {
         synopsis.setLineSpacing(dp(2), 1);
         details.addView(synopsis);
         gap(details, 16);
-        LinearLayout sources = row();
-        details.addView(sources);
         String[] names = sourceNames(item);
+        LinearLayout sources = null;
         for (int i = 0; i < names.length; i++) {
+            if (i % 3 == 0) { sources = row(); details.addView(sources); }
             final int source = i;
             Button choice = button(names[i], () -> showPlayer(item, season, episode, source));
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(124), dp(38));
-            p.rightMargin = dp(12);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(42), 1);
+            p.rightMargin = dp(8); p.bottomMargin = dp(8);
             sources.addView(choice, p);
             if (i == 0) choice.requestFocus();
         }
@@ -1112,34 +1114,40 @@ public final class MainActivity extends Activity {
         if (playing) playerSourceDialog = dialog;
         dialog.setOnDismissListener(d -> {
             if (playerSourceDialog == dialog) playerSourceDialog = null;
-            if (playing && playerOpen && playerOverlay != null) playerOverlay.resumeFromMenu();
+            if (playing && playerOpen) {
+                if (providerInput) focusVideo();
+                else if (playerOverlay != null) playerOverlay.resumeFromMenu();
+            }
         });
         LinearLayout panel = column();
         panel.setPadding(dp(24), dp(24), dp(24), dp(24));
-        panel.addView(text("Choose a source", 24, WHITE, true));
-        gap(panel, 20);
+        panel.addView(text("Choose source and player", 24, WHITE, true));
+        gap(panel, 12);
         int active = playing ? currentSourceIndex : 0;
         Button initial = null;
-        for (int i = 0; i < names.length; i++) {
-            final int source = i;
-            Button choice = button(names[i], () -> {
+        int[] order = item.kind.equals("sport") ? new int[]{0} : PlaybackChoice.displayOrder();
+        for (int id : order) {
+            final int source = id;
+            Button choice = button(names[source], () -> {
                 dialog.dismiss();
                 if (playing) loadSource(item, source, s, e);
                 else showPlayer(item, s, e, source);
-            }, i == active);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(46));
-            p.topMargin = dp(10);
+            }, source == active);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(40));
+            p.topMargin = dp(8);
             panel.addView(choice, p);
-            if (i == active) initial = choice;
+            if (source == active) initial = choice;
         }
-        dialog.setView(panel, 0, 0, 0, 0);
+        ScrollView choices = new ScrollView(this);
+        choices.addView(panel);
+        dialog.setView(choices, 0, 0, 0, 0);
         dialog.show();
         AppStyle.dialog(dialog, 420, -2);
         if (initial != null) initial.requestFocus();
     }
 
     private String[] sourceNames(Item item) {
-        return item.kind.equals("sport") ? new String[]{"Stream 1"} : new String[]{"Bolt", "Rift", "Fast"};
+        return item.kind.equals("sport") ? new String[]{"Stream 1"} : PlaybackChoice.labels();
     }
 
     private String sourceUrl(Item item, int source, int s, int e) {
@@ -1149,6 +1157,7 @@ public final class MainActivity extends Activity {
         }
         String id = String.valueOf(item.id);
         String suffix = item.kind.equals("tv") ? "/tv/" + id + "/" + s + "/" + e : "/movie/" + id;
+        source = PlaybackChoice.provider(source);
         if (source == 0) return "https://vidbolt.xyz" + suffix + "?theme=E50914&autoPlay=true";
         if (source == 1) return "https://embed.vidrift.in/embed" + suffix;
         return "https://bingr.one/watch" + suffix;
@@ -1169,7 +1178,8 @@ public final class MainActivity extends Activity {
         selected = item;
         season = s;
         episode = e;
-        currentSourceIndex = source;
+        currentSourceIndex = item.kind.equals("sport") ? 0 : PlaybackChoice.normalize(source);
+        source = currentSourceIndex;
         playerOpen = true;
         detailOpen = !item.kind.equals("sport");
         generation++;
@@ -1194,14 +1204,15 @@ public final class MainActivity extends Activity {
         final WebView sessionPlayer = player;
         player.setBackgroundColor(Color.BLACK);
         player.setFocusable(true);
+        player.setFocusableInTouchMode(true);
         if (android.os.Build.VERSION.SDK_INT >= 26) player.setDefaultFocusHighlightEnabled(false);
         player.getSettings().setJavaScriptEnabled(true);
         player.getSettings().setDomStorageEnabled(true);
         player.getSettings().setMediaPlaybackRequiresUserGesture(false);
         player.getSettings().setSupportMultipleWindows(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(player, true);
-        // Rift is resolver-only. Bolt and Fast retain their web controllers.
-        embeddedPlayer = new EmbeddedPlayback(player, false);
+        // The DOM bridge observes progress; explicit Web mode owns the inputs.
+        embeddedPlayer = new EmbeddedPlayback(player);
         final SportsEmbedCompat sportsCompat = item.kind.equals("sport") ? new SportsEmbedCompat(player) : null;
         player.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) { return false; }
@@ -1232,10 +1243,13 @@ public final class MainActivity extends Activity {
                 // historyUrl is null; onPageFinished carries the actual base URL.
                 if ((item.kind.equals("sport") && url.startsWith("https://embed.st/"))
                         || (!item.kind.equals("sport") && (url.equals("https://pantyflix.com/")
-                        || url.startsWith("https://com.okonu.flipflix/bolt/") || url.startsWith("https://vidbolt.xyz/")))) {
+                        || url.startsWith("https://com.okonu.flipflix/bolt/") || url.startsWith("https://vidbolt.xyz/")
+                        || url.startsWith("https://com.okonu.flipflix/rift/") || url.startsWith("https://embed.vidrift.in/")
+                        || url.startsWith("https://bingr.one/")))) {
                     if (WebViewFeature.isFeatureSupported(WebViewFeature.MUTE_AUDIO)) WebViewCompat.setAudioMuted(view, false);
                 }
                 if (embeddedPlayer != null) embeddedPlayer.pageFinished();
+                if (providerInput && playerSourceDialog == null && webActionsDialog == null) focusVideo();
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
@@ -1271,7 +1285,7 @@ public final class MainActivity extends Activity {
             item.kind.equals("tv") ? () -> showPlayer(item, season, Math.max(1, episode - 1), currentSourceIndex) : null,
             item.kind.equals("tv") ? () -> showPlayer(item, season, episode + 1, currentSourceIndex) : null,
             () -> choosePlayerSource(item), () -> loadSource(item, currentSourceIndex, season, episode), this::closePlayer);
-        playerOverlay.sourceName(sourceNames(item)[currentSourceIndex] + (nativePlayer == null ? nativeOnlySource ? " / VLC" : " / Web" : " / " + nativePlayer.engine()));
+        playerOverlay.sourceName(sourceNames(item)[currentSourceIndex]);
         root.addView(playerOverlay, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
     }
 
@@ -1288,7 +1302,10 @@ public final class MainActivity extends Activity {
         }
         else if (nativePlayer != null) nativePlayer.view.requestFocus();
         else if (customVideoView != null) customVideoView.requestFocus();
-        else if (player != null) player.requestFocus();
+        else if (player != null) {
+            player.requestFocus();
+            if (providerInput) player.evaluateJavascript("(function(){var f=document.querySelector('iframe');if(f)f.focus();})();", null);
+        }
     }
 
     private void revealPlayerOverlay(boolean focus) {
@@ -1308,13 +1325,18 @@ public final class MainActivity extends Activity {
         recovery = null; initialPlaybackPosition = -1;
         clearCustomVideoView();
         currentSourceIndex = source;
-        nativeOnlySource = !item.kind.equals("sport") && source == 1;
+        nativeOnlySource = !item.kind.equals("sport") && PlaybackChoice.nativeMode(source);
         int request = ++sourceRequest;
         closeStreamDiscovery();
-        if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source] + (nativeOnlySource ? " / VLC" : " / Web"));
+        if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source]);
         releaseNativePlayer();
         releaseRiftPlayer();
         releaseBoltPlayer();
+        providerInput = !item.kind.equals("sport") && !nativeOnlySource;
+        if (playerOverlay != null) {
+            if (providerInput) playerOverlay.deactivate();
+            else playerOverlay.activate();
+        }
         if (embeddedPlayer != null) embeddedPlayer.reset();
         // The next provider load replaces this document. Do not race a separate
         // about:blank navigation with registering the new session's bridges.
@@ -1328,15 +1350,17 @@ public final class MainActivity extends Activity {
             playerStatus.setText("Preparing " + sourceNames(item)[source] + "...");
             playerStatus.setVisibility(View.VISIBLE);
         }
-        if (!item.kind.equals("sport")) {
+        if (nativeOnlySource) {
             streamDiscovery = new StreamDiscovery(player, sourceUrl(item, source, s, e), nativeOnlySource, stream -> {
                 handoffToNative(item, source, s, e, stream, request, resumePosition);
             });
         }
         if (nativeOnlySource) loadNativeResolver(item, source, s, e, request);
-        else if (source == 0 && !item.kind.equals("sport")) loadBoltWeb(item, s, e, resumePosition);
+        else if (!item.kind.equals("sport") && PlaybackChoice.provider(source) == 0) loadBoltWeb(item, s, e, resumePosition);
+        else if (!item.kind.equals("sport") && PlaybackChoice.provider(source) == 1) loadRiftWeb(item, s, e);
         else loadEmbed(item, source, s, e);
         startRecovery(item, source, s, e, resumePosition);
+        if (providerInput) useProviderControls();
     }
 
     private void loadNativeResolver(Item item, int source, int s, int e, int request) {
@@ -1347,7 +1371,7 @@ public final class MainActivity extends Activity {
         // sound, player API, fullscreen permission, or watch-history clock.
         player.setVisibility(View.VISIBLE);
         String url = sourceUrl(item, source, s, e);
-        url += "?fs=parent&hide=next,episodes";
+        if (PlaybackChoice.provider(source) == 1) url += "?fs=parent&hide=next,episodes";
         String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
             + "<body style='margin:0;background:#000;overflow:hidden'><iframe title='Stream discovery' src='"
             + TextUtils.htmlEncode(url) + "' allow='autoplay' style='border:0;width:100vw;height:100vh'></iframe></body></html>";
@@ -1363,7 +1387,7 @@ public final class MainActivity extends Activity {
         closeStreamDiscovery();
         player.stopLoading(); player.loadUrl("about:blank"); player.setVisibility(View.GONE);
         if (playerStatus != null) {
-            playerStatus.setText("No usable native stream found. Use Source to try another provider, or Retry.");
+            playerStatus.setText("No usable native stream found. Use Source to select Web mode, or Retry.");
             playerStatus.setVisibility(View.VISIBLE);
         }
         revealPlayerOverlay(true);
@@ -1375,26 +1399,23 @@ public final class MainActivity extends Activity {
         player.setVisibility(View.VISIBLE); playerStatus.setVisibility(View.GONE);
         if (BoltPlayback.supported()) {
             boltPlayer = new BoltPlayback(player, embeddedPlayer);
-            boltPlayer.load(sourceUrl(item, 0, s, e), position);
-        } else loadEmbed(item, 0, s, e);
-        if (playerOverlay != null) playerOverlay.sourceName("Bolt / Web");
+            boltPlayer.load(sourceUrl(item, 3, s, e), position, true);
+        } else loadEmbed(item, 3, s, e);
         revealPlayerOverlay(false);
     }
 
-    private void fallbackBoltToWeb(Item item, int s, int e) {
-        long position = recovery == null ? -1 : recovery.handoff();
-        recovery = null;
-        ++sourceRequest;
-        releaseNativePlayer(); releaseBoltPlayer();
-        if (embeddedPlayer != null) embeddedPlayer.reset();
-        // No new discovery lease here: one failed native attempt returns to
-        // web playback until the viewer explicitly selects Retry/a new source.
-        loadBoltWeb(item, s, e, position);
-        startRecovery(item, 0, s, e, position);
+    private void loadRiftWeb(Item item, int s, int e) {
+        player.setVisibility(View.VISIBLE); playerStatus.setVisibility(View.GONE);
+        if (RiftPlayback.supported()) {
+            riftPlayer = new RiftPlayback(player,
+                message -> android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show(),
+                this::useProviderControls, this::closePlayer, true);
+            riftPlayer.load(sourceUrl(item, 4, s, e), item.id, item.kind, s, e);
+        } else loadEmbed(item, 4, s, e);
     }
 
     private void handoffToNative(Item item, int source, int s, int e, StreamDiscovery.Stream stream, int request, long initial) {
-        if (!playerOpen || request != sourceRequest || nativePlayer != null) return;
+        if (!playerOpen || !nativeOnlySource || request != sourceRequest || nativePlayer != null) return;
         long position = recovery == null ? Math.max(0, initial) : recovery.handoff();
         recovery = null;
         closeStreamDiscovery();
@@ -1421,7 +1442,12 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private PlaybackBackend playbackBackend() { return nativePlayer != null ? nativePlayer : nativeOnlySource ? WAITING_FOR_NATIVE : boltPlayer != null ? boltPlayer : embeddedPlayer; }
+    private PlaybackBackend playbackBackend() {
+        if (nativePlayer != null) return nativePlayer;
+        if (nativeOnlySource) return WAITING_FOR_NATIVE;
+        if (riftPlayer != null && riftPlayer.state().available) return riftPlayer;
+        return boltPlayer != null ? boltPlayer : embeddedPlayer;
+    }
     private void releaseBoltPlayer() { if (boltPlayer != null) { boltPlayer.close(); boltPlayer = null; } }
     private void finishRecovery() { if (recovery != null) { recovery.close(); recovery = null; } }
 
@@ -1431,7 +1457,46 @@ public final class MainActivity extends Activity {
         if (riftPlayer != null) riftPlayer.nativeControls(false);
         if (playerOverlay != null) playerOverlay.deactivate();
         focusVideo();
-        android.widget.Toast.makeText(this, "Rift controls: use arrows and OK. Back or Menu returns to Darkflix controls.", android.widget.Toast.LENGTH_LONG).show();
+        android.widget.Toast.makeText(this, "Web player: use arrows and OK. Back or Menu opens playback options.", android.widget.Toast.LENGTH_LONG).show();
+    }
+
+    private void showWebActions() {
+        if (!playerOpen || !providerInput || webActionsDialog != null || playerSourceDialog != null) return;
+        final Item item = selected;
+        final int source = currentSourceIndex, s = season, e = episode;
+        AlertDialog dialog = new AlertDialog.Builder(this).create();
+        webActionsDialog = dialog;
+        LinearLayout panel = column();
+        panel.setPadding(dp(24), dp(20), dp(24), dp(20));
+        panel.addView(text(sourceNames(item)[source], 22, WHITE, true));
+        gap(panel, 8);
+        List<String> labels = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        labels.add("Return to web player"); actions.add(this::focusVideo);
+        labels.add("Change source / player"); actions.add(() -> choosePlayerSource(item));
+        labels.add("Retry playback"); actions.add(() -> loadSource(item, source, s, e));
+        labels.add("Start from beginning"); actions.add(() -> { if (recovery != null) recovery.startOver(); });
+        if (item.kind.equals("tv")) {
+            if (e > 1) { labels.add("Previous episode"); actions.add(() -> showPlayer(item, s, e - 1, source)); }
+            labels.add("Next episode"); actions.add(() -> showPlayer(item, s, e + 1, source));
+        }
+        labels.add("Close playback"); actions.add(this::closePlayer);
+        Button initial = null;
+        for (int i = 0; i < labels.size(); i++) {
+            Runnable action = actions.get(i);
+            Button choice = button(labels.get(i), () -> { dialog.dismiss(); action.run(); });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(38)); p.topMargin = dp(6);
+            panel.addView(choice, p);
+            if (initial == null) initial = choice;
+        }
+        ScrollView scroll = new ScrollView(this); scroll.addView(panel);
+        dialog.setView(scroll, 0, 0, 0, 0);
+        dialog.setOnDismissListener(d -> {
+            if (webActionsDialog == dialog) webActionsDialog = null;
+            if (playerOpen && providerInput && playerSourceDialog == null) focusVideo();
+        });
+        dialog.show(); AppStyle.dialog(dialog, 420, -2);
+        if (initial != null) initial.requestFocus();
     }
 
     private void releaseRiftPlayer() {
@@ -1440,7 +1505,7 @@ public final class MainActivity extends Activity {
     }
 
     private void playNativeVideo(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
-        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.30", captions, 0), request, 0);
+        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.31", captions, 0), request, 0);
     }
 
     private void playNativeStream(Item item, int source, int s, int e, StreamDiscovery.Stream stream, int request, long position) {
@@ -1460,18 +1525,12 @@ public final class MainActivity extends Activity {
                 }
                 if (playerStatus != null) playerStatus.setVisibility(View.GONE);
                 if (!foreground) video.command("pause", "");
-                if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source] + " / " + video.engine());
+                if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source]);
             }
             @Override public void failed() {
                 if (!current()) return;
-                if (source == 0 && !item.kind.equals("sport")) {
-                    // Post so a synchronous preparation failure cannot replace
-                    // the backend halfway through the original handoff setup.
-                    ui.post(() -> { if (current()) fallbackBoltToWeb(item, s, e); });
-                    return;
-                }
-                // Rift remains native-only; no endless engine retries.
-                if (playerStatus != null) { playerStatus.setText("Native playback unavailable. Use Source to try another provider, or Retry."); playerStatus.setVisibility(View.VISIBLE); }
+                // Honor the user's engine choice. Never silently switch to Web.
+                if (playerStatus != null) { playerStatus.setText("Native playback unavailable. Use Source to select Web mode, or Retry."); playerStatus.setVisibility(View.VISIBLE); }
                 revealPlayerOverlay(true);
             }
             @Override public void engineChanged(String engine) {
@@ -1511,6 +1570,7 @@ public final class MainActivity extends Activity {
     private void closePlayer() {
         if (!playerOpen) return;
         playerOpen = false;
+        if (webActionsDialog != null) webActionsDialog.dismiss();
         if (playerSourceDialog != null) playerSourceDialog.dismiss();
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (section.equals("History")) openSection(section);
@@ -1525,9 +1585,9 @@ public final class MainActivity extends Activity {
         player.setVisibility(View.VISIBLE);
         String url = sourceUrl(item, source, s, e);
         if (url.isEmpty()) return;
-        String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'></head>" +
-            "<body style='margin:0;background:#000;overflow:hidden'><iframe title='Video' src='" + url +
-            "' allow='autoplay;fullscreen;picture-in-picture' allowfullscreen style='border:0;width:100vw;height:100vh'></iframe></body></html>";
+        String html = "<!doctype html><html lang='en'><head><title>Web player</title><meta name='viewport' content='width=device-width, initial-scale=1'></head>" +
+            "<body style='margin:0;background:#000;overflow:hidden'><iframe title='Video' src='" + TextUtils.htmlEncode(url) +
+            "' " + (providerInput ? "onload='this.focus()' " : "") + "allow='autoplay;encrypted-media;fullscreen;picture-in-picture' allowfullscreen style='border:0;width:100vw;height:100vh'></iframe></body></html>";
         if (!item.kind.equals("sport") && embeddedPlayer != null && embeddedPlayer.documentStart) {
             player.loadDataWithBaseURL("https://pantyflix.com/", html, "text/html", "UTF-8", null);
         } else player.loadUrl(url);
@@ -1646,8 +1706,13 @@ public final class MainActivity extends Activity {
         if (trailerPreview != null && trailerPreview.handleKey(event)) return true;
         int code = event.getKeyCode();
         if (code == providerReturnKey) {
-            if (event.getAction() == KeyEvent.ACTION_UP) providerReturnKey = -1;
-            return true;
+            if (event.getAction() == KeyEvent.ACTION_UP || event.getRepeatCount() > 0) {
+                if (event.getAction() == KeyEvent.ACTION_UP) providerReturnKey = -1;
+                return true;
+            }
+            // A dialog can receive the previous key-up after gaining focus.
+            // A fresh press must not be swallowed by that old return key.
+            providerReturnKey = -1;
         }
         // The dialog can be visible before WindowManager transfers input. Back
         // still belongs to the source menu, never the movie underneath it.
@@ -1658,15 +1723,16 @@ public final class MainActivity extends Activity {
             }
             return true;
         }
+        if ((code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU) && webActionsDialog != null) {
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                providerReturnKey = code; webActionsDialog.dismiss();
+            }
+            return true;
+        }
         if (playerOpen && providerInput) {
             if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU) {
-                if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                    if (riftPlayer == null || !riftPlayer.nativeControlsSupported()) {
-                        closePlayer(); providerReturnKey = code; return true;
-                    }
-                    providerInput = false; providerReturnKey = code;
-                    if (riftPlayer != null) riftPlayer.nativeControls(true);
-                    if (playerOverlay != null) playerOverlay.activate();
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                    providerReturnKey = code; showWebActions();
                 }
                 return true;
             }
@@ -1710,7 +1776,9 @@ public final class MainActivity extends Activity {
 
     @Override public void onBackPressed() {
         if (introActive()) return;
-        if (playerSourceDialog != null && playerSourceDialog.isShowing()) playerSourceDialog.dismiss();
+        if (webActionsDialog != null) webActionsDialog.dismiss();
+        else if (playerSourceDialog != null && playerSourceDialog.isShowing()) playerSourceDialog.dismiss();
+        else if (playerOpen && providerInput) showWebActions();
         else if (playerOpen) closePlayer();
         else if (detailOpen) openSection(section);
         else if (!section.equals("Home")) openSection("Home");
@@ -1726,11 +1794,12 @@ public final class MainActivity extends Activity {
         foreground = false;
         if (startupIntro != null) startupIntro.close();
         finishRecovery();
-        if (playerSourceDialog != null) playerSourceDialog.dismiss();
         if (updater != null) updater.close();
         releaseTrailerPreview();
         releaseDiscovery();
         playerOpen = false;
+        if (webActionsDialog != null) webActionsDialog.dismiss();
+        if (playerSourceDialog != null) playerSourceDialog.dismiss();
         sourceRequest++;
         if (playerOverlay != null) playerOverlay.deactivate();
         clearCustomVideoView();
@@ -1754,6 +1823,7 @@ public final class MainActivity extends Activity {
         releaseTrailerPreview();
         if (riftPlayer != null) riftPlayer.command("pause", "");
         if (boltPlayer != null) boltPlayer.command("pause", "");
+        if (playerOpen && providerInput && riftPlayer == null && boltPlayer == null && embeddedPlayer != null) embeddedPlayer.command("pause", "");
         if (nativePlayer != null) nativePlayer.command("pause", "");
         if (discovery != null) discovery.setActive(false);
         super.onPause();
@@ -1774,6 +1844,7 @@ public final class MainActivity extends Activity {
         if (trailerPreview != null) trailerPreview.onWindowFocusChanged(hasFocus);
         if (discovery != null) discovery.setActive(hasFocus && foreground && !introActive());
         if (updater != null) updater.stateChanged();
+        if (hasFocus && playerOpen && providerInput && playerSourceDialog == null && webActionsDialog == null) focusVideo();
     }
 
     @Override protected void onActivityResult(int request, int result, android.content.Intent data) {

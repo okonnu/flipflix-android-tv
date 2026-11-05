@@ -90,24 +90,28 @@ public final class NativeFirstPlaybackTest {
         org.junit.Assume.assumeTrue("Explicit live-provider diagnostic only", args.containsKey("nativeProvider"));
         int source = Integer.parseInt(args.getString("nativeProvider"));
         assertTrue(source >= 0 && source <= 2);
-        JSONObject catalog = new JSONObject().put("id", 45745).put("media_type", "movie").put("title", "Sintel");
+        int movieId = Integer.parseInt(args.getString("nativeMovie", "45745"));
+        JSONObject catalog = new JSONObject().put("id", movieId).put("media_type", "movie")
+            .put("title", args.getString("nativeTitle", movieId == 45745 ? "Sintel" : "Live playback check"));
         Class<?> itemClass = Class.forName("com.okonu.flipflix.MainActivity$Item");
         java.lang.reflect.Method from = itemClass.getDeclaredMethod("from", JSONObject.class, String.class); from.setAccessible(true);
         Object item = from.invoke(null, catalog, "movie");
         main(() -> invoke("showPlayerAtPosition", item, 1, 1, source, -1L));
-        AtomicBoolean nativeReady = new AtomicBoolean(); String[] status = {"Preparing"};
+        AtomicBoolean nativeReady = new AtomicBoolean(), failed = new AtomicBoolean(); String[] status = {"Preparing"};
         try {
             long end = SystemClock.uptimeMillis() + 90000;
-            while (!nativeReady.get() && SystemClock.uptimeMillis() < end) {
+            while (!nativeReady.get() && !failed.get() && SystemClock.uptimeMillis() < end) {
                 main(() -> {
                     NativePlayback nativeVideo = (NativePlayback) field("nativePlayer");
                     PlaybackBackend backend = (PlaybackBackend) invoke("playbackBackend");
+                    assertNotNull("Playback view closed before the live native check completed", backend);
                     PlaybackBackend.State s = backend.state();
                     int actualSource = (Integer) field("currentSourceIndex");
                     nativeReady.set(actualSource == source && nativeVideo != null && s.available && s.position > 1000);
                     status[0] = "requestedSource=" + source + " actualSource=" + actualSource + " engine="
                         + (nativeVideo == null ? ((Boolean) field("nativeOnlySource") ? "Resolving" : "Web") : nativeVideo.engine())
                         + " ready=" + s.available + " position=" + s.position + " duration=" + s.duration;
+                    failed.set(nativeVideo == null && field("streamDiscovery") == null && field("nativeDiscoveryDeadline") == null);
                 });
                 SystemClock.sleep(1000);
             }
@@ -117,9 +121,13 @@ public final class NativeFirstPlaybackTest {
                 await("Native playback must select, decode and output audio", () -> audioDecoded((NativePlayback) field("nativePlayer")));
                 main(() -> {
                     NativePlayback p = (NativePlayback) field("nativePlayer");
-                    p.command("mute", ""); assertEquals(0, vlcPlayer(p).getVolume());
-                    p.command("mute", ""); assertEquals(100, vlcPlayer(p).getVolume());
+                    assertFalse("New native sessions start unmuted", p.state().muted);
+                    assertEquals("VLC output starts at full player volume", 100, vlcPlayer(p).getVolume());
+                    p.command("mute", "");
                 });
+                await("Live VLC acknowledges muted audio output", () -> vlcPlayer((NativePlayback) field("nativePlayer")).getVolume() == 0);
+                main(() -> ((NativePlayback) field("nativePlayer")).command("mute", ""));
+                await("Live VLC acknowledges restored audio output", () -> vlcPlayer((NativePlayback) field("nativePlayer")).getVolume() == 100);
             }
             if (nativeReady.get()) {
                 main(() -> ((NativePlayback) field("nativePlayer")).command("seek", "60000"));
@@ -198,6 +206,7 @@ public final class NativeFirstPlaybackTest {
                 assertNull(field("boltPlayer")); assertNull(field("riftPlayer"));
                 ((NativePlayback) field("nativePlayer")).command("pause", "");
                 ((NativePlayback) field("nativePlayer")).command("seek", "26000");
+                ((NativePlayback) field("nativePlayer")).command("mute", "");
             });
             await("Native seek acknowledged", () -> ((NativePlayback) field("nativePlayer")).state().available && Math.abs(((NativePlayback) field("nativePlayer")).state().position - 26000) < 1000);
             main(() -> {
@@ -212,7 +221,8 @@ public final class NativeFirstPlaybackTest {
             await("Second provider inherits progress", () -> {
                 ((PlaybackRecovery) field("recovery")).sample(SystemClock.uptimeMillis());
                 NativePlayback player = (NativePlayback) field("nativePlayer");
-                return player.state().available && player.state().position >= 25000;
+                return player.state().available && player.state().position >= 25000
+                    && !player.state().muted && vlcPlayer(player).getVolume() == 100;
             });
             main(() -> {
                 invoke("onPause");
@@ -262,19 +272,24 @@ public final class NativeFirstPlaybackTest {
             await("VLC plays and outputs decoded audio", () -> playback.state().available && audioDecoded(playback));
             main(() -> {
                 assertEquals("VLC", playback.engine());
+                assertFalse("New native playback starts unmuted", playback.state().muted);
+                assertEquals("New native playback starts at full player volume", 100, vlcPlayer(playback).getVolume());
                 assertTrue(playback.state().position >= 8000);
                 assertTrue(playback.state().seekable);
                 playback.command("pause", ""); playback.command("seek", "14000");
                 playback.command("mute", ""); playback.command("resize", "fill");
                 assertTrue(playback.state().paused); assertTrue(playback.state().muted); assertTrue(playback.state().fillScreen);
-                assertEquals(0, vlcPlayer(playback).getVolume());
             });
+            // LibVLC can replace its audio output during a seek. Verify the
+            // acknowledged output, not a synchronous read of the old output.
+            await("VLC acknowledges mute while seeking", () -> vlcPlayer(playback).getVolume() == 0);
             await("Paused VLC seek acknowledged", () -> Math.abs(playback.state().position - 14000) < 1000 && !vlcPlayer(playback).isPlaying());
             main(() -> {
-                playback.command("mute", ""); assertEquals(100, vlcPlayer(playback).getVolume());
+                playback.command("mute", "");
                 playback.command("play", ""); assertFalse(playback.state().paused);
                 assertTrue(playback.state().settings.containsKey("audio"));
             });
+            await("VLC acknowledges unmuted output after seek", () -> vlcPlayer(playback).getVolume() == 100);
         } finally { main(() -> { playback.release(); playback.release(); assertFalse(playback.state().available); }); }
     }
 
