@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.res.AssetFileDescriptor;
 import android.graphics.Color;
 import android.media.AudioManager;
 import android.os.Handler;
@@ -16,11 +15,15 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.FrameLayout;
-import org.videolan.libvlc.LibVLC;
-import org.videolan.libvlc.Media;
-import org.videolan.libvlc.MediaPlayer;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
 
 /** One local, synchronized cold-start intro over the already-loading Home screen. */
+@androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
 final class StartupIntro {
     static final long FADE_START_MS = 7000, END_MS = 8000, WATCHDOG_MS = 12000;
     private final Context context;
@@ -32,12 +35,9 @@ final class StartupIntro {
     private final View previousFocus;
     final FrameLayout overlay;
     final StartupLogo logo;
-    MediaPlayer player;
-    private LibVLC library;
-    private AssetFileDescriptor soundtrack;
+    ExoPlayer player;
     private AudioManager audio;
     private boolean focusHeld, receiverRegistered;
-    private long clockPosition, clockTime, visualPosition;
     private final AudioManager.OnAudioFocusChangeListener focus = change -> {
         if (change < 0) ui.post(this::fadeOutOnFailure);
     };
@@ -50,9 +50,9 @@ final class StartupIntro {
     private final Runnable frame = new Runnable() {
         @Override public void run() {
             if (!isActive() || fading || player == null) return;
-            // One clock, anchored to VLC's Playing event, drives the vectors and
-            // crossfade. Decoder preparation is not included in the eight seconds.
-            long position = audioPosition();
+            // The audio clock drives vectors and crossfade, keeping assembly
+            // synchronized with the impact even when decoder startup is delayed.
+            long position = player.getCurrentPosition();
             logo.render(position);
             overlay.setAlpha(opacityAt(position));
             overlay.postOnAnimation(this);
@@ -106,35 +106,23 @@ final class StartupIntro {
             if (android.os.Build.VERSION.SDK_INT >= 33) context.registerReceiver(noisy, filter, Context.RECEIVER_NOT_EXPORTED);
             else context.registerReceiver(noisy, filter);
             receiverRegistered = true;
-            library = new LibVLC(context);
-            player = new MediaPlayer(library);
-            player.setVolume(100);
-            player.setEventListener(event -> {
-                if (event.type == MediaPlayer.Event.Playing) {
-                    clockPosition = visualPosition;
-                    clockTime = android.os.SystemClock.uptimeMillis();
-                } else if (event.type == MediaPlayer.Event.EndReached) close();
-                else if (event.type == MediaPlayer.Event.EncounteredError) fadeOutOnFailure();
+            player = new ExoPlayer.Builder(context).setMediaSourceFactory(new DefaultMediaSourceFactory(context)
+                .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(0))).build();
+            player.setVolume(1f);
+            player.addListener(new Player.Listener() {
+                @Override public void onPlaybackStateChanged(int state) {
+                    if (state == Player.STATE_ENDED) close();
+                }
+                @Override public void onPlayerError(PlaybackException error) { fadeOutOnFailure(); }
             });
-            soundtrack = context.getResources().openRawResourceFd(R.raw.darkflix_startup);
-            Media media = new Media(library, soundtrack);
-            media.addOption(":no-video");
-            player.setMedia(media); media.release();
+            player.setMediaItem(MediaItem.fromUri("android.resource://" + context.getPackageName() + "/" + R.raw.darkflix_startup));
+            player.prepare();
             player.play();
             overlay.postOnAnimation(frame);
         } catch (RuntimeException | LinkageError unavailableDecoder) {
             // Cosmetic startup must never prevent browsing, even on older Fire TVs.
             fadeOutOnFailure();
         }
-    }
-
-    private long audioPosition() {
-        // VLC's clock can remain at 250 ms for this audio-only MP4 despite
-        // continued sound. The bundled, eight-second clip has no network stalls:
-        // use a monotonic clock anchored to Playing, never to its stale timestamp.
-        if (clockTime > 0 && player.isPlaying()) visualPosition = Math.min(END_MS,
-            clockPosition + android.os.SystemClock.uptimeMillis() - clockTime);
-        return visualPosition;
     }
 
     boolean isActive() { return !finished; }
@@ -168,7 +156,7 @@ final class StartupIntro {
         failureFade.addUpdateListener(animation -> {
             float alpha = (float) animation.getAnimatedValue();
             overlay.setAlpha(alpha);
-            if (player != null) player.setVolume(Math.round(alpha * 100));
+            if (player != null) player.setVolume(alpha);
         });
         failureFade.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(android.animation.Animator animation) { close(); }
@@ -182,9 +170,7 @@ final class StartupIntro {
         ui.removeCallbacks(watchdog);
         overlay.removeCallbacks(frame);
         if (failureFade != null) { failureFade.removeAllListeners(); failureFade.cancel(); failureFade = null; }
-        if (player != null) { MediaPlayer old = player; player = null; old.setEventListener(null); old.stop(); old.release(); }
-        if (library != null) { library.release(); library = null; }
-        if (soundtrack != null) { try { soundtrack.close(); } catch (java.io.IOException ignored) { } soundtrack = null; }
+        if (player != null) { ExoPlayer old = player; player = null; old.release(); }
         if (receiverRegistered) { context.unregisterReceiver(noisy); receiverRegistered = false; }
         if (focusHeld && audio != null) { audio.abandonAudioFocus(focus); focusHeld = false; }
         logo.release();

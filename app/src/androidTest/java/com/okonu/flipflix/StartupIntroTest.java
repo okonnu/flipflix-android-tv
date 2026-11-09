@@ -76,13 +76,11 @@ public final class StartupIntroTest {
             assertTrue(intro.overlay.hasFocus());
         });
         await("The bundled soundtrack should decode without a network request", () -> intro.player != null && intro.player.isPlaying(), 5000);
-        await("VLC outputs the bundled soundtrack", () -> {
-            org.videolan.libvlc.interfaces.IMedia media = intro.player.getMedia();
-            if (media == null) return false;
-            try {
-                org.videolan.libvlc.interfaces.IMedia.Stats stats = media.getStats();
-                return stats != null && stats.decodedAudio > 0 && stats.playedAbuffers > 0 && intro.player.getVolume() == 100;
-            } finally { media.release(); }
+        await("Exo outputs the bundled soundtrack", () -> {
+            androidx.media3.exoplayer.DecoderCounters counters = intro.player.getAudioDecoderCounters();
+            if (counters == null) return false;
+            counters.ensureUpdated();
+            return counters.renderedOutputBufferCount > 0 && intro.player.getVolume() == 1f;
         }, 2000);
         main(() -> {
             assertTrue("Vector lockup must actually occupy the screen, not remain a 1px placeholder",
@@ -90,8 +88,8 @@ public final class StartupIntroTest {
             assertEquals(intro.logo.lockup.getLayoutParams().height, intro.logo.lockup.getHeight());
             assertEquals(intro.logo.lockup.getWidth(), intro.logo.pieces[0].getWidth());
         });
-        await("Soundtrack duration available", () -> intro.player.getLength() > 0, 1000);
-        main(() -> assertEquals(8000, intro.player.getLength(), 50));
+        await("Soundtrack duration available", () -> intro.player.getDuration() > 0, 1000);
+        main(() -> assertEquals(8000, intro.player.getDuration(), 50));
         await("The whole vector layer must become translucent over Home", () -> intro.isActive() && intro.overlay.getAlpha() < .85f && intro.overlay.getAlpha() > .1f, 9000);
         main(() -> {
             assertSame(home, discovery.getParent());
@@ -162,14 +160,14 @@ public final class StartupIntroTest {
         });
     }
 
-    @Test public void losingAudioFocusFadesOutAndReleasesVlc() {
+    @Test public void losingAudioFocusFadesOutAndReleasesPlayer() {
         MainActivity a = launch(); StartupIntro intro = intro(a);
         await("Soundtrack playing", () -> intro.player != null && intro.player.isPlaying(), 5000);
         main(() -> ((android.media.AudioManager.OnAudioFocusChangeListener) field(intro, "focus"))
             .onAudioFocusChange(android.media.AudioManager.AUDIOFOCUS_LOSS));
         await("Audio focus loss returns to Home", () -> !intro.isActive(), 1500);
         main(() -> {
-            assertNull(intro.player); assertNull(field(intro, "library")); assertNull(field(intro, "soundtrack"));
+            assertNull(intro.player);
             assertEquals(false, field(intro, "focusHeld")); assertEquals(false, field(intro, "receiverRegistered"));
         });
     }
@@ -185,9 +183,9 @@ public final class StartupIntroTest {
     @Test public void unavailableMediaCannotTrapViewerOnBlackScreen() {
         MainActivity a = launch(); StartupIntro intro = intro(a);
         main(() -> {
-            org.videolan.libvlc.Media missing = new org.videolan.libvlc.Media(intro.player.getLibVLC(),
-                android.net.Uri.parse("file:///missing-startup-soundtrack.m4a"));
-            intro.player.stop(); intro.player.setMedia(missing); missing.release(); intro.player.play();
+            intro.player.stop();
+            intro.player.setMediaItem(androidx.media3.common.MediaItem.fromUri("file:///missing-startup-soundtrack.m4a"));
+            intro.player.prepare(); intro.player.play();
         });
         await("Decode failure should reveal Home", () -> !intro.isActive(), 3000);
         main(() -> {

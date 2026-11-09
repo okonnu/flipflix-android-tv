@@ -7,8 +7,8 @@ android {
         applicationId "com.okonu.flipflix"
         minSdk 22
         targetSdk 33
-        versionCode 32
-        versionName "0.1.31"
+        versionCode 33
+        versionName "0.1.32"
         manifestPlaceholders = [appLabel: "Darkflix"]
         testInstrumentationRunner "com.okonu.flipflix.TvTestRunner"
     }
@@ -48,8 +48,11 @@ androidComponents {
 
 dependencies {
     // Keep Android 5.1 / Fire OS 5 support (newer releases raise the minimum SDK).
-    // Native playback engine, including software codecs; no external VLC app.
-    implementation "org.videolan.android:libvlc-all:3.7.7"
+    // Restore the last API-22-compatible Media3 version used by this app.
+    implementation "androidx.media3:media3-exoplayer:1.5.1"
+    implementation "androidx.media3:media3-exoplayer-hls:1.5.1"
+    implementation "androidx.media3:media3-exoplayer-dash:1.5.1"
+    implementation "androidx.media3:media3-ui:1.5.1"
     implementation "androidx.webkit:webkit:1.12.1"
     androidTestImplementation "androidx.test:runner:1.6.2"
     androidTestImplementation "androidx.test:rules:1.6.1"

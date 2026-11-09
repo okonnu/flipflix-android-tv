@@ -21,7 +21,7 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import static org.junit.Assert.*;
 
-/** Native TV navigation and actual local VLC decoding. No external stream dependency. */
+/** Native TV navigation and actual local ExoPlayer decoding. No external stream dependency. */
 @RunWith(AndroidJUnit4.class)
 public final class DiscoveryTest {
     @Rule public ActivityTestRule<MainActivity> rule = new ActivityTestRule<>(MainActivity.class);

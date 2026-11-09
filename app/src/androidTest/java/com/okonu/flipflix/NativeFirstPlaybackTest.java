@@ -50,25 +50,24 @@ public final class NativeFirstPlaybackTest {
     }
 
 
-    static org.videolan.libvlc.MediaPlayer vlcPlayer(NativePlayback playback) {
+    static boolean audioDecoded(NativePlayback playback) {
+        androidx.media3.exoplayer.DecoderCounters counters = exoPlayer(playback).getAudioDecoderCounters();
+        if (counters == null) return false;
+        counters.ensureUpdated();
+        return counters.renderedOutputBufferCount > 0;
+    }
+    static androidx.media3.exoplayer.ExoPlayer exoPlayer(NativePlayback playback) {
         try {
-            java.lang.reflect.Field engine = NativePlayback.class.getDeclaredField("vlc"); engine.setAccessible(true);
-            java.lang.reflect.Field player = VlcPlayback.class.getDeclaredField("player"); player.setAccessible(true);
-            return (org.videolan.libvlc.MediaPlayer) player.get(engine.get(playback));
+            java.lang.reflect.Field field = NativePlayback.class.getDeclaredField("strategy"); field.setAccessible(true);
+            return ((ExoPlayback) field.get(playback)).player;
         } catch (Exception e) { throw new AssertionError(e); }
     }
-    static boolean audioDecoded(NativePlayback playback) {
-        org.videolan.libvlc.MediaPlayer player = vlcPlayer(playback);
-        org.videolan.libvlc.interfaces.IMedia media = player.getMedia();
-        if (media == null) return false;
-        try {
-            org.videolan.libvlc.interfaces.IMedia.Stats stats = media.getStats();
-            return player.getAudioTrack() >= 0 && stats != null && stats.decodedAudio > 0 && stats.playedAbuffers > 0;
-        } finally { media.release(); }
+    static int playerVolume(NativePlayback playback) {
+        return Math.round(exoPlayer(playback).getVolume() * 100);
     }
-    @Test public void vlcIsTheDefaultNativeEngine() throws Exception {
+    @Test public void exoIsTheDefaultNativeEngine() throws Exception {
         NativePlayback playback = install(fixture());
-        try { main(() -> assertEquals("VLC", playback.engine())); }
+        try { main(() -> assertEquals("ExoPlayer", playback.engine())); }
         finally { main(playback::release); }
     }
 
@@ -116,24 +115,59 @@ public final class NativeFirstPlaybackTest {
                 SystemClock.sleep(1000);
             }
             android.util.Log.i("DarkflixNativeProbe", status[0]);
+            if (nativeReady.get()) main(() -> {
+                NativePlayback p = (NativePlayback) field("nativePlayer");
+                Object manifest = exoPlayer(p).getCurrentManifest();
+                android.util.Log.i("DarkflixNativeProbe", "manifest=" + (manifest == null ? "none" : manifest.getClass().getSimpleName()));
+                if (manifest instanceof androidx.media3.exoplayer.hls.HlsManifest) {
+                    androidx.media3.exoplayer.hls.HlsManifest hls = (androidx.media3.exoplayer.hls.HlsManifest) manifest;
+                    android.util.Log.i("DarkflixNativeProbe", "masterVariants=" + hls.multivariantPlaylist.variants.size());
+                }
+                for (androidx.media3.common.Tracks.Group group : exoPlayer(p).getCurrentTracks().getGroups())
+                    for (int i = 0; i < group.length; i++) {
+                        androidx.media3.common.Format f = group.getTrackFormat(i);
+                        android.util.Log.i("DarkflixNativeProbe", "track type=" + group.getType() + " mime=" + f.sampleMimeType
+                            + " height=" + f.height + " language=" + f.language + " supported=" + group.isTrackSupported(i));
+                    }
+                for (PlaybackBackend.Option option : p.state().qualities)
+                    android.util.Log.i("DarkflixNativeProbe", "quality=" + option.label);
+                if (args.containsKey("expectedQualities")) {
+                    int expected = Integer.parseInt(args.getString("expectedQualities"));
+                    assertEquals("Capabilities match the inspected live source", expected, p.state().qualities.size());
+                    if (expected == 1) {
+                        assertTrue(p.state().qualityMessage.contains("one supported video quality"));
+                        if (manifest instanceof androidx.media3.exoplayer.hls.HlsManifest)
+                            assertEquals(1, ((androidx.media3.exoplayer.hls.HlsManifest) manifest).multivariantPlaylist.variants.size());
+                    }
+                }
+            });
             if ("true".equals(args.getString("requireAudio"))) {
                 assertTrue(status[0], nativeReady.get());
                 await("Native playback must select, decode and output audio", () -> audioDecoded((NativePlayback) field("nativePlayer")));
                 main(() -> {
                     NativePlayback p = (NativePlayback) field("nativePlayer");
                     assertFalse("New native sessions start unmuted", p.state().muted);
-                    assertEquals("VLC output starts at full player volume", 100, vlcPlayer(p).getVolume());
+                    assertEquals("Output starts at full player volume", 100, playerVolume(p));
                     p.command("mute", "");
                 });
-                await("Live VLC acknowledges muted audio output", () -> vlcPlayer((NativePlayback) field("nativePlayer")).getVolume() == 0);
+                await("Live engine acknowledges muted audio output", () -> playerVolume((NativePlayback) field("nativePlayer")) == 0);
                 main(() -> ((NativePlayback) field("nativePlayer")).command("mute", ""));
-                await("Live VLC acknowledges restored audio output", () -> vlcPlayer((NativePlayback) field("nativePlayer")).getVolume() == 100);
+                await("Live engine acknowledges restored audio output", () -> playerVolume((NativePlayback) field("nativePlayer")) == 100);
             }
             if (nativeReady.get()) {
+                if ("true".equals(args.getString("requireQualities"))) main(() -> {
+                    NativePlayback p = (NativePlayback) field("nativePlayer");
+                    assertTrue("Live master must expose multiple supported video qualities", p.state().qualities.size() > 2);
+                    p.command("quality", p.state().qualities.get(1).id);
+                });
                 main(() -> ((NativePlayback) field("nativePlayer")).command("seek", "60000"));
                 await("Live native seek acknowledged", () -> ((NativePlayback) field("nativePlayer")).state().available
                     && ((NativePlayback) field("nativePlayer")).state().position >= 59000);
                 main(() -> ((NativePlayback) field("nativePlayer")).command("pause", ""));
+                if ("true".equals(args.getString("requireQualities"))) await("Live native quality override selected", () -> {
+                    NativePlayback p = (NativePlayback) field("nativePlayer");
+                    return p.state().qualities.size() > 1 && p.state().qualities.get(1).selected;
+                });
             }
             main(() -> {
                 invoke("revealPlayerOverlay", true);
@@ -148,19 +182,6 @@ public final class NativeFirstPlaybackTest {
                 byte[] buffer = new byte[1024]; while (input.read(buffer) != -1) { }
             }
             if ("true".equals(args.getString("requireNative"))) assertTrue(status[0], nativeReady.get());
-            if ("true".equals(args.getString("requireVlc"))) {
-                assertTrue(status[0], nativeReady.get());
-                await("VLC plays the same live stream natively at the paused checkpoint", () -> {
-                    NativePlayback p = (NativePlayback) field("nativePlayer");
-                    return p.engine().equals("VLC") && p.state().available && p.state().paused && p.state().position >= 59000;
-                });
-                main(() -> android.util.Log.i("DarkflixNativeProbe", "VLC ready=true position=" + ((NativePlayback) field("nativePlayer")).state().position));
-                try (android.os.ParcelFileDescriptor pipe = InstrumentationRegistry.getInstrumentation().getUiAutomation()
-                        .executeShellCommand("screencap -p /sdcard/Download/darkflix-native-vlc.png");
-                        java.io.FileInputStream input = new java.io.FileInputStream(pipe.getFileDescriptor())) {
-                    byte[] buffer = new byte[1024]; while (input.read(buffer) != -1) { }
-                }
-            }
         } finally { main(() -> invoke("closePlayer")); }
     }
 
@@ -222,7 +243,7 @@ public final class NativeFirstPlaybackTest {
                 ((PlaybackRecovery) field("recovery")).sample(SystemClock.uptimeMillis());
                 NativePlayback player = (NativePlayback) field("nativePlayer");
                 return player.state().available && player.state().position >= 25000
-                    && !player.state().muted && vlcPlayer(player).getVolume() == 100;
+                    && !player.state().muted && playerVolume(player) == 100;
             });
             main(() -> {
                 invoke("onPause");
@@ -260,36 +281,34 @@ public final class NativeFirstPlaybackTest {
         assertEquals("https://example.com/sub/en.vtt", NativePlayback.captionUrl("/sub/en.vtt", "https://example.com/movie/1"));
     }
 
-    @Test public void vlcDecodesAudioAndSupportsPauseSeekMuteAndCrop() throws Exception {
+    @Test public void exoDecodesAudioAndSupportsPauseSeekMuteAndCrop() throws Exception {
         // Real licensed clip with non-silent audio, not only a muted state flag.
-        File clip = new File(rule.getActivity().getCacheDir(), "vlc-sintel.mp4");
+        File clip = new File(rule.getActivity().getCacheDir(), "native-sintel.mp4");
         try (InputStream in = rule.getActivity().getAssets().open("open-films/sintel.mp4"); FileOutputStream out = new FileOutputStream(clip)) {
             byte[] bytes = new byte[8192]; int n; while ((n = in.read(bytes)) != -1) out.write(bytes, 0, n);
         }
         NativePlayback playback = install(clip);
         try {
             main(() -> playback.start(9000));
-            await("VLC plays and outputs decoded audio", () -> playback.state().available && audioDecoded(playback));
+            await("Exo plays and outputs decoded audio", () -> playback.state().available && audioDecoded(playback));
             main(() -> {
-                assertEquals("VLC", playback.engine());
+                assertEquals("ExoPlayer", playback.engine());
                 assertFalse("New native playback starts unmuted", playback.state().muted);
-                assertEquals("New native playback starts at full player volume", 100, vlcPlayer(playback).getVolume());
+                assertEquals("New native playback starts at full player volume", 100, playerVolume(playback));
                 assertTrue(playback.state().position >= 8000);
                 assertTrue(playback.state().seekable);
                 playback.command("pause", ""); playback.command("seek", "14000");
                 playback.command("mute", ""); playback.command("resize", "fill");
                 assertTrue(playback.state().paused); assertTrue(playback.state().muted); assertTrue(playback.state().fillScreen);
             });
-            // LibVLC can replace its audio output during a seek. Verify the
-            // acknowledged output, not a synchronous read of the old output.
-            await("VLC acknowledges mute while seeking", () -> vlcPlayer(playback).getVolume() == 0);
-            await("Paused VLC seek acknowledged", () -> Math.abs(playback.state().position - 14000) < 1000 && !vlcPlayer(playback).isPlaying());
+            await("Exo acknowledges mute while seeking", () -> playerVolume(playback) == 0);
+            await("Paused seek acknowledged", () -> Math.abs(playback.state().position - 14000) < 1000 && !exoPlayer(playback).isPlaying());
             main(() -> {
                 playback.command("mute", "");
                 playback.command("play", ""); assertFalse(playback.state().paused);
                 assertTrue(playback.state().settings.containsKey("audio"));
             });
-            await("VLC acknowledges unmuted output after seek", () -> vlcPlayer(playback).getVolume() == 100);
+            await("Exo acknowledges unmuted output after seek", () -> playerVolume(playback) == 100);
         } finally { main(() -> { playback.release(); playback.release(); assertFalse(playback.state().available); }); }
     }
 
@@ -303,27 +322,27 @@ public final class NativeFirstPlaybackTest {
             await("Preparation retains saved position", () -> playback.state().available && Math.abs(playback.state().position - 12000) < 1500);
             main(() -> {
                 assertTrue(playback.state().paused); assertTrue(playback.state().muted); assertTrue(playback.state().fillScreen);
-                assertEquals(0, vlcPlayer(playback).getVolume());
-                assertEquals("VLC", playback.engine());
+                assertEquals(0, playerVolume(playback));
+                assertEquals("ExoPlayer", playback.engine());
             });
         } finally { main(playback::release); }
     }
 
-    @Test public void nativeFailureIsBoundedWithoutEngineOrWebFallback() {
-        NativePlayback playback = install(new File("/missing-vlc-fixture.mp4"));
-        AtomicInteger errors = new AtomicInteger(), changes = new AtomicInteger();
+    @Test public void nativeFailureIsTerminalWithoutFallback() {
+        NativePlayback playback = install(new File("/missing-native-fixture.mp4"));
+        AtomicInteger errors = new AtomicInteger();
         try {
             main(() -> {
                 playback.setListener(new NativePlayback.Listener() {
                     public void ready() { fail("Missing file cannot be playable"); }
                     public void failed() { errors.incrementAndGet(); }
-                    public void engineChanged(String engine) { changes.incrementAndGet(); }
                 }); playback.start();
             });
             await("Failure reaches UI", () -> errors.get() == 1);
             main(() -> {
                 playback.start(); playback.reject();
-                assertEquals(1, errors.get()); assertEquals(0, changes.get()); assertFalse(playback.state().available);
+                assertEquals(1, errors.get()); assertEquals("ExoPlayer", playback.engine());
+                assertFalse(playback.state().available); assertFalse(playback.state().settings.containsKey("engine"));
             });
         } finally { main(playback::release); }
     }

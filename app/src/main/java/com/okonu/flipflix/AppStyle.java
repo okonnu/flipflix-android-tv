@@ -56,7 +56,7 @@ final class AppStyle {
     }
     private static void softwareLicenses(Activity activity) {
         StringBuilder text = new StringBuilder();
-        for (String asset : new String[]{"native-playback.txt", "LGPL-2.1.txt", "Apache-2.0.txt"}) {
+        for (String asset : new String[]{"native-playback.txt", "Apache-2.0.txt"}) {
             try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(activity.getAssets().open("licenses/" + asset), java.nio.charset.StandardCharsets.UTF_8))) {
                 String line; while ((line = reader.readLine()) != null) text.append(line).append('\n');
                 text.append('\n');

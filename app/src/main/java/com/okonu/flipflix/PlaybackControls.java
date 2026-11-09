@@ -249,18 +249,20 @@ final class PlaybackControls extends LinearLayout {
             : String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60);
     }
     private void options(boolean quality) {
+        PlaybackBackend owner = backend.get();
         PlaybackBackend.State s = state();
         List<PlaybackBackend.Option> choices = quality ? s.qualities : s.subtitles;
         suspendForMenu();
         AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle(quality ? "Video quality" : "Subtitles");
         if (choices.size() <= 1) {
-            builder.setMessage(quality ? "This source does not expose selectable video qualities. Playback uses the source's default quality."
+            builder.setMessage(quality ? (!s.qualityMessage.isEmpty() ? s.qualityMessage
+                : "Manual video quality choices are not available from this player for the current stream.")
                 : "This source has not supplied selectable subtitles for this video.").setPositiveButton("OK", null);
         } else {
             String[] labels = new String[choices.size()]; int checked = -1;
             for (int i = 0; i < choices.size(); i++) { labels[i] = choices.get(i).label; if (choices.get(i).selected) checked = i; }
             builder.setSingleChoiceItems(labels, checked, (dialog, index) -> {
-                sendOption(quality ? "quality" : "subtitle", choices.get(index)); dialog.dismiss();
+                sendOption(quality ? "quality" : "subtitle", choices.get(index), owner, s.optionsOwner); dialog.dismiss();
             });
         }
         AlertDialog dialog = builder.create();
@@ -273,8 +275,8 @@ final class PlaybackControls extends LinearLayout {
     private static String settingLabel(String key) {
         switch (key) {
             case "audio": return "Audio language / dubbing";
-            case "server": return "Rift server";
-            case "source": return "Rift source / language version";
+            case "server": return "Stream server";
+            case "source": return "Source / language version";
             case "speed": return "Playback speed";
             case "volume": return "Player volume";
             case "subtitleOffset": return "Subtitle timing (+ means later)";
@@ -284,7 +286,7 @@ final class PlaybackControls extends LinearLayout {
             case "subtitleBackground": return "Subtitle background";
             case "subtitleFont": return "Subtitle font";
             case "cast": return "Cast (requires compatible device)";
-            default: return "Use Rift player controls";
+            default: return "Use provider player controls";
         }
     }
     private void settings() {
@@ -292,7 +294,7 @@ final class PlaybackControls extends LinearLayout {
         if (state().providerControls) keys.add("player");
         suspendForMenu();
         AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle("Playback settings");
-        if (keys.isEmpty()) builder.setMessage("This source has not exposed additional settings. Rift supplies its available options when ready.").setPositiveButton("OK", null);
+        if (keys.isEmpty()) builder.setMessage("No additional settings are available from the current player yet.").setPositiveButton("OK", null);
         else {
             String[] labels = new String[keys.size()];
             for (int i = 0; i < keys.size(); i++) labels[i] = settingLabel(keys.get(i));
@@ -305,7 +307,9 @@ final class PlaybackControls extends LinearLayout {
         showSettingsDialog(builder.create());
     }
     private void settingChoices(String key) {
-        List<PlaybackBackend.Option> current = state().settings.get(key);
+        PlaybackBackend owner = backend.get();
+        PlaybackBackend.State snapshot = state();
+        List<PlaybackBackend.Option> current = snapshot.settings.get(key);
         List<PlaybackBackend.Option> choices = current == null ? new ArrayList<>() : new ArrayList<>(current);
         suspendForMenu();
         AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle(settingLabel(key));
@@ -313,14 +317,14 @@ final class PlaybackControls extends LinearLayout {
         else {
             String[] labels = new String[choices.size()]; int checked = -1;
             for (int i = 0; i < labels.length; i++) { labels[i] = choices.get(i).label; if (choices.get(i).selected) checked = i; }
-            builder.setSingleChoiceItems(labels, checked, (dialog, index) -> { sendOption(key, choices.get(index)); dialog.dismiss(); });
+            builder.setSingleChoiceItems(labels, checked, (dialog, index) -> { sendOption(key, choices.get(index), owner, snapshot.optionsOwner); dialog.dismiss(); });
         }
         showSettingsDialog(builder.create());
     }
-    private void sendOption(String key, PlaybackBackend.Option selected) {
+    private void sendOption(String key, PlaybackBackend.Option selected, PlaybackBackend owner, Object optionsOwner) {
         PlaybackBackend.State current = state();
         List<PlaybackBackend.Option> choices = key.equals("quality") ? current.qualities : key.equals("subtitle") ? current.subtitles : current.settings.get(key);
-        if (choices != null) for (PlaybackBackend.Option choice : choices) {
+        if (backend.get() == owner && current.optionsOwner == optionsOwner && choices != null) for (PlaybackBackend.Option choice : choices) {
             // A failover may reuse track ID "0" for a different language/quality.
             if (choice.id.equals(selected.id) && choice.label.equals(selected.label)) { send(key, selected.id); return; }
         }

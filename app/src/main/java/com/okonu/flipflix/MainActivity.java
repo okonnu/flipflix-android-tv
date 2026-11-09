@@ -1505,7 +1505,7 @@ public final class MainActivity extends Activity {
     }
 
     private void playNativeVideo(Item item, int source, int s, int e, String stream, String referer, JSONArray captions, int request) {
-        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.31", captions, 0), request, 0);
+        playNativeStream(item, source, s, e, new StreamDiscovery.Stream(stream, referer, "Darkflix/0.1.32", captions, 0), request, 0);
     }
 
     private void playNativeStream(Item item, int source, int s, int e, StreamDiscovery.Stream stream, int request, long position) {
@@ -1525,16 +1525,13 @@ public final class MainActivity extends Activity {
                 }
                 if (playerStatus != null) playerStatus.setVisibility(View.GONE);
                 if (!foreground) video.command("pause", "");
-                if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source]);
+                if (playerOverlay != null) playerOverlay.sourceName(sourceNames(item)[source] + " / " + video.engine());
             }
             @Override public void failed() {
                 if (!current()) return;
                 // Honor the user's engine choice. Never silently switch to Web.
                 if (playerStatus != null) { playerStatus.setText("Native playback unavailable. Use Source to select Web mode, or Retry."); playerStatus.setVisibility(View.VISIBLE); }
                 revealPlayerOverlay(true);
-            }
-            @Override public void engineChanged(String engine) {
-                if (current() && playerStatus != null) { playerStatus.setText("Trying native " + engine + " playback..."); playerStatus.setVisibility(View.VISIBLE); }
             }
         });
         video.start(position);

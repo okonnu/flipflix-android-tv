@@ -3,7 +3,9 @@ package com.okonu.flipflix;
 import java.util.ArrayList;
 import java.util.List;
 
-/** The same TV controls operate native streams and cooperating HTML video frames. */
+/** Playback strategy shared by engines and provider adapters. Commands run on the
+ * main thread; option IDs are opaque and valid only for the current adapter/session.
+ * Only advertise tracks/settings that the implementation can actually select. */
 interface PlaybackBackend {
     final class Option {
         final String id, label;
@@ -20,6 +22,9 @@ interface PlaybackBackend {
         // Optional provider-owned choices, refreshed atomically with each state event.
         final java.util.Map<String, List<Option>> settings = new java.util.LinkedHashMap<>();
         boolean providerControls, ended;
+        // Explain engine limitations separately from missing source tracks.
+        String qualityMessage = "";
+        Object optionsOwner;
     }
     State state();
     void command(String name, String value);
