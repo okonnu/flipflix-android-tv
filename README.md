@@ -8,6 +8,14 @@ Download the latest APK: https://tinyurl.com/24qywecz
 
 The GitHub repository and releases are public. The stable short link targets the latest `app-release.apk`.
 
+## Current-year Featured picks (v0.1.34)
+
+- Featured picks now requests movies released from January 1 of the current year through today, rated at least 7/10 with at least 100 votes, ordered by highest rating. It no longer duplicates the mixed movie/TV Trending feed. These are catalog ratings, not a guarantee of stream availability or copy quality.
+- The Home row and its clickable heading share the same paginated movie query, using the catalog's [discover filters](https://developer.themoviedb.org/reference/discover-movie). The existing card, hero and remote-navigation styling stays unchanged. Trending and the Movies/TV Shows filters retain their own behavior.
+- The date comes from the device calendar, not a hardcoded year. Returning Home on a new calendar day refreshes dated feeds even inside the existing one-hour cache window. Empty/error results do not substitute older films, TV shows or bundled demo recommendations.
+
+Verification on 2026-11-11: nine focused catalog checks plus one live feed/remote-heading test passed on the physical onn TV. Coverage includes current-year/rating/vote parameters, shared collection and pagination, year rollover, stale response rejection, refresh, error handling and real qualifying movie data. Release build/lint (zero errors, 74 warnings), signing and 16 KB ZIP alignment passed. Playback and preview-speed behavior are unchanged by this release.
+
 ## Search restored (v0.1.33)
 
 - The old `/api/search?q=...` endpoint now redirects to a site that returns HTTP 404. Search uses the working `/api/tmdb/search/multi?query=...&include_adult=false` route, keeping only movie and TV results and preserving each title's media type.

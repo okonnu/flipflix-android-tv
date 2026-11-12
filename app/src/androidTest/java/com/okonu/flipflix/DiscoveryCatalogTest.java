@@ -87,7 +87,8 @@ public final class DiscoveryCatalogTest {
             DiscoveryRow featured = rows(a).get(0);
             assertTrue(featured.items.isEmpty());
             Request first = api.requests.get(0);
-            assertEquals("/api/tmdb/trending/all/day?page=1", first.path);
+            assertEquals(featured.path + "1", first.path);
+            assertEquals("/api/tmdb/discover/movie", Uri.parse(first.path).getPath());
             first.callback.done(page(101), null);
             assertEquals(1, featured.items.size()); assertEquals("movie:101", featured.items.get(0).key);
             assertNotNull(featured.items.get(0).catalog);
@@ -160,6 +161,115 @@ public final class DiscoveryCatalogTest {
             assertEquals("primary_release_date.desc", query.getQueryParameter("sort_by"));
             assertEquals(new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date()), query.getQueryParameter("primary_release_date.lte"));
         });
+    }
+
+    @Test public void featuredPicksAndItsCollectionShareCurrentYearRatingFiltersAndPagination() throws Exception {
+        MainActivity a = rule.launchActivity(null);
+        JSONObject firstPage = page(101).put("total_pages", 2);
+        main(() -> {
+            FakeApi api = attach(a);
+            DiscoveryRow row = rows(a).get(0);
+            assertEquals("Featured picks", row.section); assertEquals("movie", row.kind);
+            String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
+            Uri path = Uri.parse(row.path + "1");
+            assertEquals("/api/tmdb/discover/movie", path.getPath());
+            assertEquals(today.substring(0, 4) + "-01-01", path.getQueryParameter("primary_release_date.gte"));
+            assertEquals(today, path.getQueryParameter("primary_release_date.lte"));
+            assertEquals("7", path.getQueryParameter("vote_average.gte"));
+            assertEquals("100", path.getQueryParameter("vote_count.gte"));
+            assertEquals("vote_average.desc", path.getQueryParameter("sort_by"));
+            assertEquals("false", path.getQueryParameter("include_adult"));
+            assertEquals("false", path.getQueryParameter("include_video"));
+            api.requests.get(0).callback.done(firstPage, null);
+            invoke(a, "loadDiscoveryRow", row);
+            assertEquals(row.path + "2", api.last().path);
+            api.last().callback.done(page(102), null);
+            assertEquals(2, row.items.size());
+            invoke(a, "openSection", row.section);
+            assertEquals(row.path + "1", api.last().path);
+            api.last().callback.done(firstPage, null);
+            invoke(a, "loadCollectionPage", field(a, "fullCollection"));
+            assertEquals(row.path + "2", api.last().path);
+        });
+    }
+
+    @Test public void featuredYearRollsForwardAndHomeRefreshesOnCalendarChange() {
+        Uri previous = Uri.parse(MainActivity.featuredMoviesPath("2026-12-31") + "1");
+        Uri next = Uri.parse(MainActivity.featuredMoviesPath("2027-01-01") + "1");
+        assertEquals("2026-01-01", previous.getQueryParameter("primary_release_date.gte"));
+        assertEquals("2027-01-01", next.getQueryParameter("primary_release_date.gte"));
+        assertEquals("2027-01-01", next.getQueryParameter("primary_release_date.lte"));
+        MainActivity a = rule.launchActivity(null);
+        main(() -> {
+            attach(a);
+            List<DiscoveryRow> before = rows(a);
+            set(a, "discoveryDay", "2000-12-31");
+            invoke(a, "openSection", "Home");
+            assertNotSame("Even a recent cache must not carry last year's titles into a new year", before, rows(a));
+            assertTrue(rows(a).get(0).loading);
+        });
+    }
+
+    @Test public void liveFeaturedPicksMeetRulesAndRemoteHeadingOpensSameCollection() throws Exception {
+        org.junit.Assume.assumeTrue("true".equals(InstrumentationRegistry.getArguments().getString("liveFeatured")));
+        MainActivity a = rule.launchActivity(null);
+        await(() -> rows(a) != null && !rows(a).get(0).loading);
+        String[] path = {""};
+        main(() -> {
+            DiscoveryRow row = rows(a).get(0);
+            assertFalse("Live Featured picks must load", row.failed);
+            assertFalse("Live catalog must return qualifying movies", row.items.isEmpty());
+            path[0] = row.path;
+            Uri query = Uri.parse(row.path + "1");
+            String lower = query.getQueryParameter("primary_release_date.gte");
+            String upper = query.getQueryParameter("primary_release_date.lte");
+            for (DiscoveryItem item : row.items) {
+                JSONObject film = item.catalog;
+                assertEquals("movie", film.optString("media_type"));
+                String release = film.optString("release_date");
+                assertTrue(item.title + " release date", release.compareTo(lower) >= 0 && release.compareTo(upper) <= 0);
+                assertTrue(item.title + " rating", film.optDouble("vote_average") >= 7);
+                assertTrue(item.title + " vote count", film.optInt("vote_count") >= 100);
+            }
+            android.util.Log.i("DarkflixFeaturedTest", "qualifyingMovies=" + row.items.size() + " date=" + upper);
+        });
+        android.os.SystemClock.sleep(1500);
+        capture("darkflix-featured-home.png");
+        InstrumentationRegistry.getInstrumentation().setInTouchMode(false);
+        main(() -> {
+            java.util.ArrayList<android.view.View> matches = new java.util.ArrayList<>();
+            a.getWindow().getDecorView().findViewsWithText(matches, "Featured picks, browse all", android.view.View.FIND_VIEWS_WITH_CONTENT_DESCRIPTION);
+            assertEquals(1, matches.size()); assertTrue(matches.get(0).requestFocus());
+        });
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_DPAD_CENTER);
+        await(() -> field(a, "fullCollection") != null && !(boolean) field(field(a, "fullCollection"), "loading"));
+        main(() -> {
+            assertEquals("Featured picks", field(a, "section"));
+            Object collection = field(a, "fullCollection");
+            assertEquals(path[0], field(collection, "pathPrefix"));
+            assertFalse(((List<?>) field(collection, "tiles")).isEmpty());
+        });
+        android.os.SystemClock.sleep(1500);
+        capture("darkflix-featured-collection.png");
+    }
+
+    private void await(java.util.function.BooleanSupplier check) {
+        java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean();
+        long end = android.os.SystemClock.uptimeMillis() + 30000;
+        do {
+            main(() -> done.set(check.getAsBoolean()));
+            if (done.get()) return;
+            android.os.SystemClock.sleep(100);
+        } while (android.os.SystemClock.uptimeMillis() < end);
+        fail("Live catalog did not finish loading");
+    }
+
+    private void capture(String name) throws Exception {
+        android.graphics.Bitmap image = InstrumentationRegistry.getInstrumentation().getUiAutomation().takeScreenshot();
+        assertNotNull(image);
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream("/sdcard/Download/" + name)) {
+            image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+        } finally { image.recycle(); }
     }
 
     @Test public void upgradingRemovesOnlyDemoBookmarksAndPreservesRealFilmsAndHistory() throws Exception {

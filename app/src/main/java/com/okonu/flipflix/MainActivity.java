@@ -94,6 +94,7 @@ public final class MainActivity extends Activity {
     private List<DiscoveryRow> discoveryRows;
     private static final long HOME_REFRESH_MS = 60 * 60 * 1000L;
     private long discoveryLoadedAt;
+    private String discoveryDay = "";
     private final DiscoveryView.Position discoveryPosition = new DiscoveryView.Position();
     private final DiscoveryView.Position libraryPosition = new DiscoveryView.Position();
     private final DiscoveryView.Position historyPosition = new DiscoveryView.Position();
@@ -380,7 +381,7 @@ public final class MainActivity extends Activity {
 
     private List<DiscoveryRow> buildDiscoveryRows() {
         List<DiscoveryRow> result = new ArrayList<>();
-        result.add(new DiscoveryRow("Featured picks", "Trending", "/api/tmdb/trending/all/day?page=", "movie", false));
+        result.add(new DiscoveryRow("Featured picks", "Featured picks", discoveryPath("Featured picks"), "movie", false));
         result.add(new DiscoveryRow("Trending", "Trending", "/api/tmdb/trending/all/day?page=", "movie", false));
         result.add(new DiscoveryRow("Movies", "Movies", moviePath(), "movie", false));
         result.add(new DiscoveryRow("TV Shows", "TV Shows", tvPath(), "tv", false));
@@ -397,16 +398,26 @@ public final class MainActivity extends Activity {
         if (name.equals("Crime TV")) return "/api/tmdb/discover/tv?with_genres=80&sort_by=popularity.desc&include_adult=false&page=";
         if (name.equals("Comedy TV")) return "/api/tmdb/discover/tv?with_genres=35&sort_by=popularity.desc&include_adult=false&page=";
         if (name.equals("Comedy movies")) return "/api/tmdb/discover/movie?with_genres=35&sort_by=popularity.desc&include_adult=false&page=";
-        String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
+        String today = catalogDay();
+        if (name.equals("Featured picks")) return featuredMoviesPath(today);
         return "/api/tmdb/discover/movie?sort_by=primary_release_date.desc&primary_release_date.lte=" + today + "&vote_count.gte=80&include_adult=false&page=";
     }
+    private static String catalogDay() {
+        return new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
+    }
+    static String featuredMoviesPath(String today) {
+        return "/api/tmdb/discover/movie?sort_by=vote_average.desc&primary_release_date.gte="
+            + today.substring(0, 4) + "-01-01&primary_release_date.lte=" + today
+            + "&vote_average.gte=7&vote_count.gte=100&include_adult=false&include_video=false&page=";
+    }
     private boolean discoveryExpired(long now) {
-        return discoveryRows == null || now - discoveryLoadedAt >= HOME_REFRESH_MS;
+        return discoveryRows == null || now - discoveryLoadedAt >= HOME_REFRESH_MS || !catalogDay().equals(discoveryDay);
     }
     private void prepareDiscoveryRows(long now) {
         if (!discoveryExpired(now)) return;
         discoveryRows = buildDiscoveryRows();
         discoveryLoadedAt = now;
+        discoveryDay = catalogDay();
         discoveryPosition.row = discoveryPosition.card = 0;
     }
     private void showDiscovery(boolean library) {
@@ -769,7 +780,7 @@ public final class MainActivity extends Activity {
         else if (name.equals("Spotlight")) { path = "/api/tmdb/trending/movie/week?page="; kind = "movie"; }
         else if (name.equals("Movies")) { path = movieFilters.pathPrefix(); kind = "movie"; }
         else if (name.equals("TV Shows")) { path = tvFilters.pathPrefix(); kind = "tv"; }
-        else if (name.equals("Crime TV") || name.equals("Comedy TV") || name.equals("Comedy movies") || name.equals("New releases")) {
+        else if (name.equals("Featured picks") || name.equals("Crime TV") || name.equals("Comedy TV") || name.equals("Comedy movies") || name.equals("New releases")) {
             path = discoveryPath(name); kind = name.endsWith("TV") ? "tv" : "movie";
         }
         else if (name.equals("Anime")) {
