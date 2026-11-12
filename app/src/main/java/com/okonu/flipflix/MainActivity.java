@@ -674,25 +674,48 @@ public final class MainActivity extends Activity {
         query.setBackground(shape(PANEL, AppStyle.BORDER));
         query.setOnFocusChangeListener((v, focused) -> query.setBackground(shape(PANEL, focused ? WHITE : AppStyle.BORDER)));
         query.setInputType(InputType.TYPE_CLASS_TEXT);
+        query.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         search.addView(query, new LinearLayout.LayoutParams(0, dp(44), 1));
         LinearLayout results = column();
+        int[] searchRequest = {0};
         Runnable submit = () -> {
             String term = query.getText().toString().trim();
             if (term.isEmpty()) return;
+            android.view.inputmethod.InputMethodManager keyboard =
+                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(query.getWindowToken(), 0);
             results.removeAllViews();
+            focusRows.clear();
             results.addView(text("Searching...", 17, MUTED, false));
             int request = generation;
-            api.object("/api/search?q=" + android.net.Uri.encode(term), (json, error) -> {
-                if (request != generation) return;
-                if (error != null || json == null) { results.removeAllViews(); results.addView(text("Search unavailable", 17, MUTED, false)); return; }
-                fillGrid(results, json.optJSONArray("results"), "movie");
+            int submission = ++searchRequest[0];
+            api.object("/api/tmdb/search/multi?query=" + android.net.Uri.encode(term) + "&include_adult=false", (json, error) -> {
+                if (request != generation || submission != searchRequest[0]) return;
+                JSONArray entries = json == null ? null : json.optJSONArray("results");
+                if (error != null || entries == null) {
+                    results.removeAllViews();
+                    results.addView(text("Search unavailable. Select Search to try again.", 17, MUTED, false));
+                    return;
+                }
+                // Multi-search also returns people, which cannot be opened as playable titles.
+                JSONArray titles = new JSONArray();
+                for (int i = 0; i < entries.length(); i++) {
+                    JSONObject entry = entries.optJSONObject(i);
+                    if (entry == null) continue;
+                    String kind = entry.optString("media_type");
+                    if (kind.equals("movie") || kind.equals("tv")) titles.put(entry);
+                }
+                fillGrid(results, titles, "movie");
             });
         };
         Button go = button("Search", submit);
         LinearLayout.LayoutParams searchAction = new LinearLayout.LayoutParams(dp(110), dp(44));
         searchAction.leftMargin = dp(12);
         search.addView(go, searchAction);
-        query.setOnEditorActionListener((v, actionId, event) -> { submit.run(); return true; });
+        query.setOnEditorActionListener((v, actionId, event) -> {
+            if (event == null || event.getAction() == KeyEvent.ACTION_DOWN) submit.run();
+            return true;
+        });
         gap(content, 22);
         content.addView(results);
         query.requestFocus();

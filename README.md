@@ -8,6 +8,15 @@ Download the latest APK: https://tinyurl.com/24qywecz
 
 The GitHub repository and releases are public. The stable short link targets the latest `app-release.apk`.
 
+## Search restored (v0.1.33)
+
+- The old `/api/search?q=...` endpoint now redirects to a site that returns HTTP 404. Search uses the working `/api/tmdb/search/multi?query=...&include_adult=false` route, keeping only movie and TV results and preserving each title's media type.
+- Older responses cannot overwrite a newer query or a different screen. The keyboard's Search action submits once and closes the keyboard; results receive remote focus. Failed requests retain the query and explain how to retry. Empty results remain distinct from failed/malformed responses.
+- Search layout, playback engines, provider behavior and update scheduling are unchanged. Version code 34 retains the established package and signing certificate.
+- Installations with the updater (v0.1.19 onward) discover this stable GitHub release while foregrounded and browsing, normally no more than once every six hours. Restarting does not override that interval. Browse > App updates > Check now checks immediately. Android still requires installation approval; versions without the updater need a manual APK install.
+
+Verification on 2026-11-11: the request-routing regression failed before the fix on the physical onn TV. Focused checks cover the live `leave` search, movie/TV filtering, remote submission and TV-title opening, stale responses, retry/empty/malformed results, release eligibility, package compatibility, deferred update prompts and cached updates. The search screen was visually checked from a TV screenshot. Release build/lint (zero errors, 74 warnings), APK signature and 16 KB ZIP alignment passed. No emulator or playback-suite run was used.
+
 ## ExoPlayer-only native playback (v0.1.32)
 
 - ExoPlayer is the only native player. VLC, its binaries, dependencies, fallback, selector and bundled notices have been removed. Startup audio and optional direct ambient previews also use ExoPlayer. The vector intro, eight-second timing and final crossfade remain.
