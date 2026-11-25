@@ -17,6 +17,7 @@ interface PlaybackBackend {
     final class State {
         boolean available, canStart, seekable, paused = true, muted, canResize, fillScreen;
         long position, duration;
+        int error;
         final List<Option> subtitles = new ArrayList<>();
         final List<Option> qualities = new ArrayList<>();
         // Optional provider-owned choices, refreshed atomically with each state event.

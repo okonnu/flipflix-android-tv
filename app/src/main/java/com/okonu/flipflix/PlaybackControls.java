@@ -253,7 +253,7 @@ final class PlaybackControls extends LinearLayout {
         PlaybackBackend.State s = state();
         List<PlaybackBackend.Option> choices = quality ? s.qualities : s.subtitles;
         suspendForMenu();
-        AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle(quality ? "Video quality" : "Subtitles");
+        AlertDialog.Builder builder = AppStyle.modal(activity, quality ? "Video quality" : "Subtitles");
         if (choices.size() <= 1) {
             builder.setMessage(quality ? (!s.qualityMessage.isEmpty() ? s.qualityMessage
                 : "Manual video quality choices are not available from this player for the current stream.")
@@ -293,7 +293,7 @@ final class PlaybackControls extends LinearLayout {
         List<String> keys = new ArrayList<>(state().settings.keySet());
         if (state().providerControls) keys.add("player");
         suspendForMenu();
-        AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle("Playback settings");
+        AlertDialog.Builder builder = AppStyle.modal(activity, "Playback settings");
         if (keys.isEmpty()) builder.setMessage("No additional settings are available from the current player yet.").setPositiveButton("OK", null);
         else {
             String[] labels = new String[keys.size()];
@@ -312,7 +312,7 @@ final class PlaybackControls extends LinearLayout {
         List<PlaybackBackend.Option> current = snapshot.settings.get(key);
         List<PlaybackBackend.Option> choices = current == null ? new ArrayList<>() : new ArrayList<>(current);
         suspendForMenu();
-        AlertDialog.Builder builder = new AlertDialog.Builder(activity).setTitle(settingLabel(key));
+        AlertDialog.Builder builder = AppStyle.modal(activity, settingLabel(key));
         if (choices.isEmpty()) builder.setMessage("No choices are available on the current source.").setPositiveButton("OK", null);
         else {
             String[] labels = new String[choices.size()]; int checked = -1;

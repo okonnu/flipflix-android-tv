@@ -19,6 +19,7 @@ final class EmbeddedPlayback implements PlaybackBackend {
     private State latest = new State();
     private JavaScriptReplyProxy frame;
     private String script = "";
+    Runnable onStateChanged;
     final boolean documentStart;
     private final boolean messaging;
 
@@ -53,9 +54,11 @@ final class EmbeddedPlayback implements PlaybackBackend {
                 next.muted = json.optBoolean("muted"); next.position = Math.max(0, json.optLong("position"));
                 next.canResize = json.optBoolean("canResize"); next.fillScreen = json.optBoolean("fillScreen");
                 next.duration = Math.max(0, json.optLong("duration"));
+                next.error = json.optInt("error");
                 readOptions(json.optJSONArray("subtitles"), next.subtitles);
                 readOptions(json.optJSONArray("qualities"), next.qualities);
                 latest = next; frame = reply;
+                if (onStateChanged != null) onStateChanged.run();
             } catch (Exception ignored) { }
         });
         if (documentStart) WebViewCompat.addDocumentStartJavaScript(view, script, origins);

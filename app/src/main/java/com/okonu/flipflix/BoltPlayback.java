@@ -17,6 +17,7 @@ final class BoltPlayback implements PlaybackBackend, AutoCloseable {
     private final String session = UUID.randomUUID().toString();
     private final State reported = new State();
     private boolean closed, ready, hasTime;
+    Runnable onStateChanged;
 
     static boolean supported() { return WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER); }
     BoltPlayback(WebView web, PlaybackBackend fallback) {
@@ -66,6 +67,7 @@ final class BoltPlayback implements PlaybackBackend, AutoCloseable {
             }
             reported.available = (ready || hasTime) && reported.duration > 0;
             reported.canStart = ready; reported.seekable = reported.available;
+            if (onStateChanged != null) onStateChanged.run();
         } catch (Exception ignored) { }
     }
     @Override public State state() {

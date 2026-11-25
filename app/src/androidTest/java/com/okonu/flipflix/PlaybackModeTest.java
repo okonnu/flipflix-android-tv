@@ -10,6 +10,7 @@ import android.webkit.WebViewClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.filters.SdkSuppress;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -30,6 +31,11 @@ import static org.junit.Assert.*;
 public final class PlaybackModeTest {
     @Rule public ActivityTestRule<MainActivity> rule = new ActivityTestRule<>(MainActivity.class);
     private void main(Runnable action) { InstrumentationRegistry.getInstrumentation().runOnMainSync(action); }
+    private boolean resolverSupported() {
+        return WebViewFeature.isFeatureSupported(WebViewFeature.MUTE_AUDIO)
+            && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+            && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER);
+    }
     private Object field(String name) {
         try { java.lang.reflect.Field f = MainActivity.class.getDeclaredField(name); f.setAccessible(true); return f.get(rule.getActivity()); }
         catch (Exception e) { throw new AssertionError(e); }
@@ -68,6 +74,9 @@ public final class PlaybackModeTest {
             }
             @Override public void onPageFinished(WebView view, String url) { production.onPageFinished(view, url); }
         });
+        int provider = PlaybackChoice.provider((Integer) field("currentSourceIndex"));
+        web.loadUrl(provider == 0 ? "https://vidbolt.xyz/movie/9933001" : provider == 1
+            ? "https://embed.vidrift.in/embed/movie/9933001" : "https://bingr.one/watch/movie/9933001");
     }
     private void key(int code) {
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(code);
@@ -85,7 +94,7 @@ public final class PlaybackModeTest {
 
     @Test public void webMenuAndSourceChooserAreRemoteReachable() throws Exception {
         Object item = item();
-        main(() -> { invoke("showPlayer", item, 1, 1, 0); fixture(new InputProbe()); invoke("loadSource", item, 4, 1, 1); });
+        main(() -> { invoke("showPlayer", item, 1, 1, 4); fixture(new InputProbe()); });
         try {
             await("Web input ready", () -> ((WebView) field("player")).hasFocus()
                 && ((PlaybackBackend) invoke("playbackBackend")).state().available);
@@ -106,7 +115,11 @@ public final class PlaybackModeTest {
             capture("darkflix-source-modes");
             key(KeyEvent.KEYCODE_DPAD_UP); key(KeyEvent.KEYCODE_DPAD_CENTER);
             await("Remote selection explicitly switches Rift Web to Native", () -> (Integer) field("currentSourceIndex") == 1 && (Boolean) field("nativeOnlySource"));
-            main(() -> { assertFalse((Boolean) field("providerInput")); assertNotNull(field("streamDiscovery")); });
+            main(() -> {
+                assertFalse((Boolean) field("providerInput"));
+                if (resolverSupported()) assertNotNull(field("streamDiscovery"));
+                else assertTrue(((android.widget.TextView) field("playerStatus")).getText().toString().contains("No usable native stream"));
+            });
         } finally { main(() -> invoke("closePlayer")); }
         InstrumentationRegistry.getInstrumentation().waitForIdleSync();
         // Capture the newly laid-out detail page, not the outgoing player frame.
@@ -161,13 +174,16 @@ public final class PlaybackModeTest {
                 main(() -> {
                     invoke("loadSource", item, id, 1, 1);
                     assertTrue((Boolean) field("nativeOnlySource")); assertFalse((Boolean) field("providerInput"));
-                    assertNotNull(field("streamDiscovery"));
-                    assertTrue(WebViewCompat.isAudioMuted((WebView) field("player")));
-                    ((Runnable) field("nativeDiscoveryDeadline")).run();
+                    if (resolverSupported()) {
+                        assertNotNull(field("streamDiscovery"));
+                        assertTrue(WebViewCompat.isAudioMuted((WebView) field("player")));
+                        ((Runnable) field("nativeDiscoveryDeadline")).run();
+                    } else assertTrue(((android.widget.TextView) field("playerStatus")).getText().toString().contains("No usable native stream"));
                     assertEquals(id, field("currentSourceIndex"));
                     assertNull(field("boltPlayer")); assertNull(field("riftPlayer")); assertNull(field("nativePlayer"));
                     assertFalse(((PlaybackBackend) invoke("playbackBackend")).state().available);
                     invoke("loadSource", item, id + 3, 1, 1);
+                    fixture(input);
                     assertFalse((Boolean) field("nativeOnlySource")); assertTrue((Boolean) field("providerInput"));
                     assertNull(field("streamDiscovery")); assertNull(field("nativeDiscoveryDeadline"));
                     // Even a queued direct URL must not override an explicit Web selection.
@@ -177,10 +193,12 @@ public final class PlaybackModeTest {
                 });
                 await("Web mode is visible, unmuted, focused and has no app control overlay", () -> {
                     WebView web = (WebView) field("player");
-                    return web.hasFocus() && !WebViewCompat.isAudioMuted(web)
+                    return web.hasFocus() && (!WebViewFeature.isFeatureSupported(WebViewFeature.MUTE_AUDIO) || !WebViewCompat.isAudioMuted(web))
                         && ((PlaybackBackend) invoke("playbackBackend")).state().available
                         && ((View) field("playerOverlay")).getVisibility() == View.GONE;
                 });
+                main(() -> assertEquals("A ready web player has no loading/error layer", View.GONE,
+                    ((View) field("playbackFeedback")).getVisibility()));
                 int keys = input.keys.get(), clicks = input.clicks.get();
                 key(KeyEvent.KEYCODE_DPAD_RIGHT); key(KeyEvent.KEYCODE_DPAD_CENTER);
                 await("Provider iframe receives real D-pad and OK input", () -> input.keys.get() > keys && input.clicks.get() > clicks);
@@ -207,7 +225,7 @@ public final class PlaybackModeTest {
         main(() -> { invoke("showPlayer", item, 1, 1, 0); fixture(new InputProbe()); });
         try {
             for (int choice : new int[]{3,4,5}) {
-                main(() -> invoke("loadSource", item, choice, 1, 1));
+                main(() -> { invoke("loadSource", item, choice, 1, 1); fixture(new InputProbe()); });
                 await("Selected web backend reports progress", () -> {
                     PlaybackBackend.State state = ((PlaybackBackend) invoke("playbackBackend")).state();
                     ((PlaybackRecovery) field("recovery")).sample(SystemClock.uptimeMillis());

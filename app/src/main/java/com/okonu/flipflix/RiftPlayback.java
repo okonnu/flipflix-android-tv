@@ -24,6 +24,7 @@ final class RiftPlayback implements PlaybackBackend {
     private final boolean directInput;
     private State latest = new State();
     private boolean closed, fill;
+    Runnable onStateChanged;
 
     static boolean supported() { return WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER); }
 
@@ -100,6 +101,7 @@ final class RiftPlayback implements PlaybackBackend {
                     : reason.equals("not-ready") ? "Rift is still preparing this source. Try again when ready."
                     : "Rift could not apply that option (" + reason + "). Reopen the menu for current choices.");
             } else if (type.equals("vidrift:exit")) exit.run();
+            if (onStateChanged != null) onStateChanged.run();
         } catch (Exception ignored) { }
     }
 

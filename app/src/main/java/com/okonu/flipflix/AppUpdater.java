@@ -34,7 +34,7 @@ final class AppUpdater implements AutoCloseable {
     private boolean foreground, restored, busy, closed, waitingPermission, installing;
     private boolean manual;
     private GithubRelease ready;
-    private String status = "Updates are checked automatically while you browse. Downloads are verified before installation.";
+    private String status = "Updates are checked on every app launch and while you browse. Downloads are verified before installation.";
     private AlertDialog dialog;
 
     AppUpdater(Activity activity, Browsing browsing) {
@@ -62,7 +62,7 @@ final class AppUpdater implements AutoCloseable {
     void showStatus() {
         if (closed || dialog != null) return;
         if (ready != null) { manual = true; offer(); return; }
-        dialog = new AlertDialog.Builder(activity).setTitle("Darkflix " + repository.installedVersion())
+        dialog = AppStyle.modal(activity, "Darkflix " + repository.installedVersion())
             .setMessage(status + "\n\nAndroid requires your confirmation to install an update. Checks never interrupt a movie.")
             .setPositiveButton(busy ? "Working..." : "Check now", (d, w) -> ui.post(() -> check(true)))
             .setNegativeButton("Close", null).create();
@@ -71,21 +71,30 @@ final class AppUpdater implements AutoCloseable {
     }
     void check(boolean requested) {
         if (closed || busy || waitingPermission || installing || (!requested && (!automatic || !available()))) return;
-        manual = requested; busy = true;
+        boolean startup = !restored;
+        // A fresh launch gets one offer even if Not now was chosen last time.
+        // Ordinary foreground resumes retain the same instance and do not nag.
+        manual = requested || startup; busy = true;
         status = "Checking GitHub releases...";
         if (requested) toast(status);
-        boolean due = requested || System.currentTimeMillis() >= prefs.getLong("next_check", 0);
+        boolean due = requested || startup || System.currentTimeMillis() >= prefs.getLong("next_check", 0);
         if (due) prefs.edit().putLong("next_check", System.currentTimeMillis() + RETRY_INTERVAL).apply();
         boolean restore = !restored; restored = true;
         worker.execute(() -> {
             try {
                 GithubRelease result = restore ? repository.pending() : ready;
                 // A verified download survives Later, process death, and TV restarts.
-                if (result == null && due) {
-                    result = repository.latest();
-                    if (result != null) {
-                        ui.post(() -> { if (!closed) status = "Downloading and verifying Darkflix update..."; });
-                        repository.prepare(result);
+                if (due) {
+                    try {
+                        GithubRelease latest = repository.latest();
+                        if (latest != null && (result == null || !latest.version.equals(result.version) || !latest.digest.equals(result.digest))) {
+                            ui.post(() -> { if (!closed) status = "Downloading and verifying Darkflix update..."; });
+                            repository.prepare(latest); result = latest;
+                        }
+                    } catch (Exception e) {
+                        // Already-verified downloads are usable offline. Never
+                        // claim an unverified or partially downloaded APK is ready.
+                        if (result == null) throw e;
                     }
                 }
                 GithubRelease completed = result;
@@ -94,14 +103,16 @@ final class AppUpdater implements AutoCloseable {
                     busy = false; ready = completed;
                     if (due) prefs.edit().putLong("next_check", System.currentTimeMillis() + CHECK_INTERVAL).apply();
                     status = ready == null ? "You have the latest release." : "Darkflix " + ready.version + " is ready to install.";
-                    if (manual && ready == null && foreground) toast(status);
+                    if (requested && ready == null && foreground) toast(status);
+                    if (ready == null) manual = false;
                     stateChanged();
                 });
             } catch (Exception e) {
                 ui.post(() -> {
                     if (closed) return;
                     busy = false; status = "Could not update. " + friendly(e);
-                    if (manual && foreground) toast(status);
+                    manual = false;
+                    if (requested && foreground) toast(status);
                     stateChanged();
                 });
             }
@@ -110,10 +121,10 @@ final class AppUpdater implements AutoCloseable {
     private void offer() {
         if (!available() || dialog != null || ready == null || busy) return;
         manual = false;
-        dialog = new AlertDialog.Builder(activity).setTitle("Darkflix " + ready.version + " is ready")
-            .setMessage("The update was downloaded from GitHub and verified. Install it now? Your library and saved settings will stay intact.")
-            .setPositiveButton("Install update", (d, w) -> ui.post(this::install))
-            .setNegativeButton("Later", (d, w) -> snooze()).create();
+        dialog = AppStyle.modal(activity, "New version available")
+            .setMessage("Darkflix " + ready.version + " is ready. Would you like to install it?\n\nThe download is verified. Your library and saved settings will stay intact.")
+            .setPositiveButton("Install", (d, w) -> ui.post(this::install))
+            .setNegativeButton("Not now", (d, w) -> snooze()).create();
         dialog.setOnCancelListener(d -> snooze());
         display();
     }
@@ -128,7 +139,7 @@ final class AppUpdater implements AutoCloseable {
         if (closed || busy || ready == null || !foreground) return;
         snooze(); // Cancel/back from system screens must not cause an install loop.
         if (Build.VERSION.SDK_INT >= 26 && !activity.getPackageManager().canRequestPackageInstalls()) {
-            dialog = new AlertDialog.Builder(activity).setTitle("Allow Darkflix updates")
+            dialog = AppStyle.modal(activity, "Allow Darkflix updates")
                 .setMessage("On the next screen, allow Darkflix to install unknown apps, then press Back. This permission is needed for updates downloaded from GitHub.")
                 .setPositiveButton("Open settings", (d, w) -> {
                     waitingPermission = true;

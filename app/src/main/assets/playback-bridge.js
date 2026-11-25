@@ -63,6 +63,7 @@
             hls.levels.forEach(function (level, i) { qualities.push(option(i, level.height + 'p', !hls.autoLevelEnabled && hls.currentLevel === i)); });
         }
         window.FlipflixPlayback.postMessage(JSON.stringify({available: v.readyState > 0,
+            error: v.error ? v.error.code : 0,
             seekable: v.seekable.length > 0, position: Math.round((v.currentTime || 0) * 1000),
             duration: Number.isFinite(v.duration) ? Math.round(v.duration * 1000) : 0,
             paused: v.paused, muted: v.muted || v.volume === 0, subtitles: subtitles, qualities: qualities,
@@ -98,7 +99,7 @@
             state();
         } catch (_) { /* An unsupported provider stays under its own playback control. */ }
     };
-    ['loadedmetadata', 'play', 'pause', 'volumechange', 'durationchange', 'seeked', 'timeupdate'].forEach(function (name) {
+    ['loadedmetadata', 'play', 'pause', 'volumechange', 'durationchange', 'seeked', 'timeupdate', 'error'].forEach(function (name) {
         document.addEventListener(name, function (event) {
             if (!event.target || event.target.tagName !== 'VIDEO') return;
             video = event.target;

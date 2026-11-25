@@ -11,6 +11,7 @@ import android.graphics.drawable.Drawable;
 final class ControlIcon extends Drawable {
     private final String name;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private android.content.res.ColorStateList tint;
 
     ControlIcon(String name, int color) {
         this.name = name;
@@ -21,6 +22,12 @@ final class ControlIcon extends Drawable {
     }
 
     void color(int color) { paint.setColor(color); invalidateSelf(); }
+    void tint(android.content.res.ColorStateList colors) { tint = colors; onStateChange(getState()); }
+    @Override public boolean isStateful() { return tint != null; }
+    @Override protected boolean onStateChange(int[] state) {
+        if (tint == null) return false;
+        color(tint.getColorForState(state, tint.getDefaultColor())); return true;
+    }
 
     private void line(Canvas canvas, float... points) {
         Path path = new Path();
@@ -34,7 +41,17 @@ final class ControlIcon extends Drawable {
         canvas.translate(getBounds().left, getBounds().top);
         canvas.scale(getBounds().width() / 24f, getBounds().height() / 24f);
         paint.setStyle(Paint.Style.STROKE);
-        if (name.equals("play")) {
+        if (name.equals("close")) {
+            line(canvas, 6, 6, 18, 18); line(canvas, 18, 6, 6, 18);
+        } else if (name.equals("check")) {
+            line(canvas, 4, 12, 9, 17, 20, 6);
+        } else if (name.equals("download")) {
+            line(canvas, 12, 3, 12, 16); line(canvas, 7, 11, 12, 16, 17, 11); line(canvas, 4, 17, 4, 21, 20, 21, 20, 17);
+        } else if (name.equals("web")) {
+            canvas.drawCircle(12, 12, 9, paint); canvas.drawOval(8, 3, 16, 21, paint); line(canvas, 3, 12, 21, 12);
+        } else if (name.equals("screen")) {
+            canvas.drawRoundRect(2, 4, 22, 18, 2, 2, paint); line(canvas, 8, 22, 16, 22); line(canvas, 12, 18, 12, 22);
+        } else if (name.equals("play")) {
             paint.setStyle(Paint.Style.FILL);
             line(canvas, 7, 4, 21, 12, 7, 20, 7, 4);
         } else if (name.equals("pause")) {

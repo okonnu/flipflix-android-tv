@@ -109,7 +109,7 @@ public final class AppUpdaterTest {
         main(() -> {
             java.util.ArrayList<android.view.View> labels = new java.util.ArrayList<>();
             ((AlertDialog) field(updater, "dialog")).getWindow().getDecorView()
-                .findViewsWithText(labels, "Darkflix 0.1.20 is ready", android.view.View.FIND_VIEWS_WITH_TEXT);
+                .findViewsWithText(labels, "New version available", android.view.View.FIND_VIEWS_WITH_TEXT);
             assertFalse("Update prompts use the new displayed app name", labels.isEmpty());
         });
         main(() -> ((AlertDialog) field(updater, "dialog")).getButton(AlertDialog.BUTTON_NEGATIVE).performClick());
@@ -122,12 +122,48 @@ public final class AppUpdaterTest {
         controller(source, new AtomicBoolean(true));
         main(() -> settings().edit().putLong("next_check", System.currentTimeMillis() + AppUpdater.CHECK_INTERVAL).commit());
         waitFor(() -> field(updater, "dialog") != null);
-        assertEquals(0, source.checks); assertEquals(0, source.downloads);
+        assertEquals(1, source.checks); assertEquals(0, source.downloads);
     }
     @Test public void offlineCheckBacksOffAndNeverPromptsInstaller() throws Exception {
         Source source = new Source(); source.fail = true; controller(source, new AtomicBoolean(true));
         main(() -> updater.check(true)); waitFor(() -> !(boolean) field(updater, "busy"));
         main(() -> { assertNull(field(updater, "dialog")); assertTrue(settings().getLong("next_check", 0) > System.currentTimeMillis()); });
+    }
+    @Test public void eachFreshLaunchChecksAndOffersDespitePreviousSnooze() throws Exception {
+        Source first = new Source(); first.candidate = release("0.1.50"); controller(first, new AtomicBoolean(true));
+        main(() -> settings().edit().putLong("next_check", System.currentTimeMillis() + AppUpdater.CHECK_INTERVAL)
+            .putLong("snooze_until", System.currentTimeMillis() + AppUpdater.SNOOZE).commit());
+        waitFor(() -> field(updater, "dialog") != null);
+        assertEquals(1, first.checks);
+        main(() -> {
+            AlertDialog dialog = (AlertDialog) field(updater, "dialog");
+            assertEquals("Install", dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText().toString());
+            assertEquals("Not now", dialog.getButton(AlertDialog.BUTTON_NEGATIVE).getText().toString());
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();
+        });
+        waitFor(() -> rule.getActivity().hasWindowFocus());
+        main(() -> { updater.pause(); updater.resume(); updater.stateChanged(); assertNull(field(updater, "dialog")); });
+        assertEquals("Foreground resume is not another app launch", 1, first.checks);
+        Source next = new Source(); next.cached = release("0.1.50");
+        main(() -> {
+            updater.close(); updater = new AppUpdater(rule.getActivity(), () -> true, next, settings(), true); updater.resume();
+        });
+        waitFor(() -> field(updater, "dialog") != null);
+        assertEquals("New launch ignores the prior six-hour check window", 1, next.checks);
+        assertEquals("Verified cached APK is not downloaded again", 0, next.downloads);
+    }
+    @Test public void currentVersionIsQuietAndOfflineStartupBacksOff() throws Exception {
+        Source source = new Source(); controller(source, new AtomicBoolean(true));
+        waitFor(() -> (boolean) field(updater, "restored") && !(boolean) field(updater, "busy"));
+        main(() -> { assertNull(field(updater, "dialog")); updater.pause(); updater.resume(); });
+        assertEquals(1, source.checks);
+        Source offline = new Source(); offline.fail = true;
+        main(() -> { updater.close(); updater = new AppUpdater(rule.getActivity(), () -> true, offline, settings(), true); updater.resume(); });
+        waitFor(() -> (boolean) field(updater, "restored") && !(boolean) field(updater, "busy"));
+        main(() -> {
+            assertNull(field(updater, "dialog")); assertEquals(1, offline.checks);
+            assertTrue(settings().getLong("next_check", 0) > System.currentTimeMillis());
+        });
     }
     @Test @androidx.test.filters.SdkSuppress(minSdkVersion = 26)
     public void installPermissionIsRequestedOnceAndDenialDoesNotLoop() throws Exception {
